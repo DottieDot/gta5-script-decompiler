@@ -1,2 +1,2 @@
 [workspace]
-members = ["./crates/gta5-script-decompiler"]
+members = ["./crates/decompiler", "./crates/cli"]

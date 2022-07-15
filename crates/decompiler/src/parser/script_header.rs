@@ -4,6 +4,8 @@ use binary_layout::define_layout;
 use binary_reader::{BinaryReader, Endian};
 use thiserror::Error;
 
+use super::read_pointer::ReadPointer;
+
 #[derive(Debug)]
 pub struct ScriptHeader {
   pub magic:                u32,
@@ -66,7 +68,7 @@ define_layout!(pc_header, LittleEndian, {
 });
 
 impl ScriptHeader {
-  pub fn read_pc_header(bytes: &[u8]) -> Result<Self, ParseScriptHeaderError> {
+  pub fn from_pc_header(bytes: &[u8]) -> Result<Self, ParseScriptHeaderError> {
     let mut reader = BinaryReader::from_u8(bytes);
     reader.set_endian(Endian::Little);
 
@@ -82,32 +84,42 @@ impl ScriptHeader {
 
     let pc_header = pc_header::View::new(reader.read_bytes(pc_header::SIZE.unwrap())?.to_vec());
 
+    reader.jmp((offset + pc_header.strings_offset().read_as_pointer()) as usize);
     let string_blocks = (pc_header.strings_size().read() + 0x3FFF) >> 14;
     let string_table_offsets = (0..string_blocks)
-      .map(|_| reader.read_u32().map(|v| (v & 0xFFFFFF) + offset))
+      .map(|_| {
+        let res = reader.read_u32().map(|v| (v & 0xFFFFFF) + offset);
+        reader.adv(4);
+        res
+      })
       .collect::<Result<_, _>>()?;
 
+    reader.jmp((offset + pc_header.code_blocks_offset().read_as_pointer()) as usize);
     let code_blocks = (pc_header.code_size().read() + 0x3FFF) >> 14;
     let code_table_offsets = (0..code_blocks)
-      .map(|_| reader.read_u32().map(|v| (v & 0xFFFFFF) + offset))
+      .map(|_| {
+        let res = reader.read_u32().map(|v| (v & 0xFFFFFF) + offset);
+        reader.adv(4);
+        res
+      })
       .collect::<Result<_, _>>()?;
 
     Ok(ScriptHeader {
       magic: pc_header.magic().read(),
-      sub_header: pc_header.sub_header().read() & 0xFFFFFF,
-      code_blocks_offset: pc_header.code_blocks_offset().read() & 0xFFFFFF,
+      sub_header: pc_header.sub_header().read_as_pointer(),
+      code_blocks_offset: pc_header.code_blocks_offset().read_as_pointer(),
       globals_version: pc_header.globals_version().read(),
       code_size: pc_header.code_size().read(),
       paramter_count: pc_header.paramter_count().read(),
       statics_count: pc_header.statics_count().read(),
       globals_count: pc_header.globals_count().read(),
       natives_count: pc_header.natives_count().read(),
-      statics_offset: pc_header.statics_offset().read() & 0xFFFFFF,
-      globals_offset: pc_header.globals_offset().read() & 0xFFFFFF,
-      natives_offset: pc_header.natives_offset().read() & 0xFFFFFF,
+      statics_offset: pc_header.statics_offset().read_as_pointer(),
+      globals_offset: pc_header.globals_offset().read_as_pointer(),
+      natives_offset: pc_header.natives_offset().read_as_pointer(),
       name_hash: pc_header.name_hash().read(),
-      script_name_offset: pc_header.script_name_offset().read() & 0xFFFFFF,
-      string_offset: pc_header.strings_offset().read() & 0xFFFFFF,
+      script_name_offset: pc_header.script_name_offset().read_as_pointer(),
+      string_offset: pc_header.strings_offset().read_as_pointer(),
       strings_size: pc_header.strings_size().read(),
       // End of header
       rsc7_offset,
@@ -116,7 +128,7 @@ impl ScriptHeader {
       string_blocks,
       code_blocks,
       script_name: {
-        reader.jmp(offset as usize + (pc_header.script_name_offset().read() & 0xFFFFFF) as usize);
+        reader.jmp(offset as usize + pc_header.script_name_offset().read_as_pointer() as usize);
         let mut name = Vec::default();
         loop {
           let char = reader.read_u8()?;

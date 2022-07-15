@@ -1,0 +1,2 @@
+[workspace]
+members = ["./crates/gta5-script-decompiler"]

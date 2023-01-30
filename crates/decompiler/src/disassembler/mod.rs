@@ -78,8 +78,8 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
         let return_count = val & 0b00000011;
         let arg_count = val & 0b11111100;
         Instruction::NativeCall {
-          arg_count: arg_count,
-          return_count: return_count,
+          arg_count,
+          return_count,
           native_index: reader.read_u16()?,
         }
       }
@@ -165,7 +165,7 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
           .map(|_| {
             reader
               .read_u32()
-              .map_err(|e| DisassembleError::from(e))
+              .map_err(DisassembleError::from)
               .and_then(|v| get_jump_address(&mut reader).map(|v2| (v, v2)))
           })
           .collect::<Result<_, _>>()?

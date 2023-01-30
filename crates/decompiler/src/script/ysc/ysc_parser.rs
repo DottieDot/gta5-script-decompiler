@@ -52,12 +52,10 @@ pub fn parse_ysc_file(path: impl AsRef<Path> + ToString) -> Result<Script, Parse
     source: e,
   })?;
 
-  Ok(
-    parse_ysc(&contents).map_err(|e| ParseYscFileError::ParseError {
-      path: path_ref.to_str().map(str::to_owned),
-      source: e,
-    })?,
-  )
+  parse_ysc(&contents).map_err(|e| ParseYscFileError::ParseError {
+    path: path_ref.to_str().map(str::to_owned),
+    source: e,
+  })
 }
 
 fn flatten_table(
@@ -71,8 +69,8 @@ fn flatten_table(
     .enumerate()
     .flat_map(|(index, offset)| {
       let to_take = cmp::min(total_size - index * block_size, block_size);
-      let end_offset = *offset as usize + to_take;
-      bytes[(*offset as usize)..end_offset].to_vec()
+      let end_offset = *offset + to_take;
+      bytes[(*offset)..end_offset].to_vec()
     })
     .collect::<Vec<_>>()
 }

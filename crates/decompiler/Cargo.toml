@@ -13,3 +13,4 @@ binary-reader = "0.4.5"
 thiserror = "1.0.31"
 strum = { version = "0.24", features = ["derive"] }
 num_enum = "0.5.7"
+anyhow = "1.0.68"

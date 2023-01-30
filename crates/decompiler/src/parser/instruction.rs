@@ -18,7 +18,7 @@ pub enum Instruction {
   IntegerDivide,
 
   #[strum(serialize = "IMOD")]
-  IntigerModulo,
+  IntegerModulo,
 
   #[strum(serialize = "INOT")]
   IntegerNot,
@@ -47,7 +47,7 @@ pub enum Instruction {
   #[strum(serialize = "FADD")]
   FloatAdd,
 
-  #[strum(serialize = "FSub")]
+  #[strum(serialize = "FSUB")]
   FloatSubtract,
 
   #[strum(serialize = "FMUL")]
@@ -136,16 +136,16 @@ pub enum Instruction {
 
   #[strum(serialize = "NATIVE")]
   NativeCall {
-    arg_count:    u8,
+    arg_count: u8,
     return_count: u8,
-    native_index: u16
+    native_index: u16,
   },
 
   #[strum(serialize = "ENTER")]
   Enter {
     paramter_count: u8,
-    var_count:      u16,
-    name:           Option<String>
+    var_count: u16,
+    name: Option<String>,
   },
 
   #[strum(serialize = "LEAVE")]
@@ -392,5 +392,5 @@ pub enum Instruction {
   PushConstF7,
 
   #[strum(serialize = "BITTEST")]
-  BitTest
+  BitTest,
 }

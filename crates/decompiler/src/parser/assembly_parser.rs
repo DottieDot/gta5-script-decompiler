@@ -6,7 +6,7 @@ use thiserror::Error;
 use super::{Instruction, Opcode};
 
 pub fn parse_assembly(
-  byte_code: &[u8]
+  byte_code: &[u8],
 ) -> Result<Vec<(Range<usize>, Instruction)>, ParseAssemblyError> {
   let mut result = Vec::<(Range<usize>, Instruction)>::default();
 
@@ -18,8 +18,8 @@ pub fn parse_assembly(
     let raw_opcode = reader.read_u8()?;
     let instruction = match Opcode::try_from(raw_opcode).map_err(|e| {
       ParseAssemblyError::ReadInstructionError {
-        input:  raw_opcode,
-        source: e
+        input: raw_opcode,
+        source: e,
       }
     })? {
       Opcode::Nop => Instruction::Nop,
@@ -27,7 +27,7 @@ pub fn parse_assembly(
       Opcode::IntegerSubtract => Instruction::IntegerSubtract,
       Opcode::IntegerMultiply => Instruction::IntegerMultiply,
       Opcode::IntegerDivide => Instruction::IntegerDivide,
-      Opcode::IntigerModulo => Instruction::IntigerModulo,
+      Opcode::IntegerModulo => Instruction::IntegerModulo,
       Opcode::IntegerNot => Instruction::IntegerNot,
       Opcode::IntegerNegate => Instruction::IntegerNegate,
       Opcode::IntegerEquals => Instruction::IntegerEquals,
@@ -73,32 +73,30 @@ pub fn parse_assembly(
         let return_count = val & 0b00000011;
         let arg_count = val & 0b11111100;
         Instruction::NativeCall {
-          arg_count:    arg_count,
+          arg_count: arg_count,
           return_count: return_count,
-          native_index: reader.read_u16()?
+          native_index: reader.read_u16()?,
         }
       }
-      Opcode::Enter => {
-        Instruction::Enter {
-          paramter_count: reader.read_u8()?,
-          var_count:      reader.read_u16()?,
-          name:           {
-            let length = reader.read_u8()?;
-            if length == 0 {
-              None
-            } else {
-              Some(
-                String::from_utf8(reader.read_bytes(length as usize)?.to_vec()).map_err(|e| {
-                  ParseAssemblyError::InvalidFunctionNameError {
-                    pos:    reader.pos,
-                    source: e
-                  }
-                })?
-              )
-            }
+      Opcode::Enter => Instruction::Enter {
+        paramter_count: reader.read_u8()?,
+        var_count: reader.read_u16()?,
+        name: {
+          let length = reader.read_u8()?;
+          if length == 0 {
+            None
+          } else {
+            Some(
+              String::from_utf8(reader.read_bytes(length as usize)?.to_vec()).map_err(|e| {
+                ParseAssemblyError::InvalidFunctionNameError {
+                  pos: reader.pos,
+                  source: e,
+                }
+              })?,
+            )
           }
-        }
-      }
+        },
+      },
       Opcode::Leave => Instruction::Leave(reader.read_u8()?, reader.read_u8()?),
       Opcode::Load => Instruction::Load,
       Opcode::Store => Instruction::Store,
@@ -153,19 +151,17 @@ pub fn parse_assembly(
       Opcode::GlobalU24Load => Instruction::GlobalU24Load(reader.read_u24()?),
       Opcode::GlobalU24Store => Instruction::GlobalU24Store(reader.read_u24()?),
       Opcode::PushConstU24 => Instruction::PushConstU24(reader.read_u24()?),
-      Opcode::Switch => {
-        Instruction::Switch({
-          let count = reader.read_u8()?;
-          (0..count)
-            .map(|_| {
-              reader
-                .read_u32()
-                .map_err(|e| ParseAssemblyError::from(e))
-                .and_then(|v| get_jump_address(&mut reader).map(|v2| (v, v2)))
-            })
-            .collect::<Result<_, _>>()?
-        })
-      }
+      Opcode::Switch => Instruction::Switch({
+        let count = reader.read_u8()?;
+        (0..count)
+          .map(|_| {
+            reader
+              .read_u32()
+              .map_err(|e| ParseAssemblyError::from(e))
+              .and_then(|v| get_jump_address(&mut reader).map(|v2| (v, v2)))
+          })
+          .collect::<Result<_, _>>()?
+      }),
       Opcode::String => Instruction::String,
       Opcode::Stringhash => Instruction::Stringhash,
       Opcode::TextLabelAssignString => Instruction::TextLabelAssignString(reader.read_u8()?),
@@ -194,7 +190,7 @@ pub fn parse_assembly(
       Opcode::PushConstF5 => Instruction::PushConstF5,
       Opcode::PushConstF6 => Instruction::PushConstF6,
       Opcode::PushConstF7 => Instruction::PushConstF7,
-      Opcode::BitTest => Instruction::BitTest
+      Opcode::BitTest => Instruction::BitTest,
     };
     result.push((start_pos..reader.pos, instruction));
   }
@@ -207,8 +203,8 @@ fn get_jump_address(reader: &mut BinaryReader) -> Result<u32, ParseAssemblyError
   Ok(
     add_i16_to_usize(reader.pos + 2, offset).ok_or(ParseAssemblyError::InvalidJump {
       pos: reader.pos,
-      offset
-    })? as u32
+      offset,
+    })? as u32,
   )
 }
 
@@ -224,16 +220,16 @@ fn add_i16_to_usize(usize: usize, i16: i16) -> Option<usize> {
 pub enum ParseAssemblyError {
   #[error("{} is not a recognized instruction", input)]
   ReadInstructionError {
-    input:  u8,
+    input: u8,
     #[source]
-    source: <Opcode as TryFrom<u8>>::Error
+    source: <Opcode as TryFrom<u8>>::Error,
   },
 
   #[error("Read error: {}", source)]
   ReadError {
     #[source]
     #[from]
-    source: io::Error
+    source: io::Error,
   },
 
   #[error("Invalid jump offset at: {}, with offset: {}", pos, offset)]
@@ -241,8 +237,8 @@ pub enum ParseAssemblyError {
 
   #[error("Failed to parse function name at: {}", pos)]
   InvalidFunctionNameError {
-    pos:    usize,
+    pos: usize,
     #[source]
-    source: FromUtf8Error
-  }
+    source: FromUtf8Error,
+  },
 }

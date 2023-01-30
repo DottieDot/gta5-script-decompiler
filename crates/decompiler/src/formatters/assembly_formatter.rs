@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::disassembler::{Instruction, InstructionInfo};
 
 pub struct AssemblyFormatter {
@@ -7,8 +9,8 @@ pub struct AssemblyFormatter {
 
 impl AssemblyFormatter {
   pub fn format(&self, code: &[u8], instructions: &[InstructionInfo]) -> String {
+    let labels = create_labels(instructions);
     let mut lines: Vec<String> = Default::default();
-    let mut fn_counter = 0;
 
     for info in instructions {
       let bytes = create_byte_string(code, self.max_bytes_to_show, info.pos, info.size);
@@ -25,6 +27,15 @@ impl AssemblyFormatter {
       } else {
         " ".repeat(bytes_len)
       };
+
+      if let Some(label) = labels.get(&info.pos) {
+        if !matches!(&info.instruction, Instruction::Enter { .. }) {
+          lines.extend_from_slice(&[
+            prefix_without_bytes.clone(),
+            format!("{prefix_without_bytes}.{label}:")
+          ]);
+        }
+      }
 
       match &info.instruction {
         Instruction::Nop => lines.push(format!("{prefix}\tNOP")),
@@ -89,14 +100,13 @@ impl AssemblyFormatter {
           var_count,
           name
         } => {
-          fn_counter += 1;
-          let display_name = name.clone().unwrap_or_else(|| format!("func_{fn_counter}"));
+          let display_name = labels.get(&info.pos).expect("unlabeled function name");
 
           lines.extend_from_slice(&[
             prefix_without_bytes.clone(),
-            format!("{prefix_without_bytes}; ========== S U B R O U T I N E =========="),
+            format!("{prefix_without_bytes}; ========== F U N C T I O N =========="),
             prefix_without_bytes.clone(),
-            format!("{prefix_without_bytes}; {display_name}"),
+            format!("{prefix_without_bytes}.{display_name}:"),
             if let Some(name) = name {
               format!("{prefix}\tENTER {parameter_count} {var_count} \"{name}\"")
             } else {
@@ -195,28 +205,77 @@ impl AssemblyFormatter {
         Instruction::GlobalU16Store { global_index } => {
           lines.push(format!("{prefix}\tGLOBAL_U16_STORE {global_index}"))
         }
-        Instruction::Jump { location } => lines.push(format!("{prefix}\tJ loc_{location}")),
-        Instruction::JumpZero { location } => lines.push(format!("{prefix}\tJZ loc_{location}")),
+        Instruction::Jump { location } => {
+          lines.push(format!(
+            "{prefix}\tJ {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled jump location")
+          ))
+        }
+        Instruction::JumpZero { location } => {
+          lines.push(format!(
+            "{prefix}\tJZ {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled jump location")
+          ))
+        }
         Instruction::IfEqualJump { location } => {
-          lines.push(format!("{prefix}\tIEQ_JZ loc_{location}"))
+          lines.push(format!(
+            "{prefix}\tIEQ_JZ {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled jump location")
+          ))
         }
         Instruction::IfNotEqualJump { location } => {
-          lines.push(format!("{prefix}\tINE_JZ loc_{location}"))
+          lines.push(format!(
+            "{prefix}\tINE_JZ {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled jump location")
+          ))
         }
         Instruction::IfGreaterThanJump { location } => {
-          lines.push(format!("{prefix}\tIGT_JZ loc_{location}"))
+          lines.push(format!(
+            "{prefix}\tIGT_JZ {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled jump location")
+          ))
         }
         Instruction::IfGreaterOrEqualJump { location } => {
-          lines.push(format!("{prefix}\tIGE_JZ loc_{location}"))
+          lines.push(format!(
+            "{prefix}\tIGE_JZ {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled jump location")
+          ))
         }
         Instruction::IfLowerThanJump { location } => {
-          lines.push(format!("{prefix}\tILT_JZ loc_{location}"))
+          lines.push(format!(
+            "{prefix}\tILT_JZ {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled jump location")
+          ))
         }
         Instruction::IfLowerOrEqualJump { location } => {
-          lines.push(format!("{prefix}\tILE_JZ loc_{location}"))
+          lines.push(format!(
+            "{prefix}\tILE_JZ {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled jump location")
+          ))
         }
         Instruction::FunctionCall { location } => {
-          lines.push(format!("{prefix}\tCALL loc_{location}"))
+          lines.push(format!(
+            "{prefix}\tCALL {}",
+            labels
+              .get(&(*location as usize))
+              .expect("unlabeled call location")
+          ))
         }
         Instruction::StaticU24 { static_index } => {
           lines.push(format!("{prefix}\tSTATIC_U24 {static_index}"))
@@ -240,7 +299,12 @@ impl AssemblyFormatter {
         Instruction::Switch { cases } => {
           lines.push(format!("{prefix}\tSWITCH"));
           lines.extend(cases.iter().map(|(value, location)| {
-            format!("{prefix_without_bytes}\t\tCASE 0x{value:08X}:loc_{location} ; {value}")
+            format!(
+              "{prefix_without_bytes}\t\tCASE 0x{value:08X} {} ; {value}",
+              labels
+                .get(&(*location as usize))
+                .expect("unlabeled switch case location")
+            )
           }))
         }
         Instruction::String => lines.push(format!("{prefix}\tSTRING")),
@@ -285,6 +349,41 @@ impl AssemblyFormatter {
 
     lines.join("\n")
   }
+}
+
+fn create_labels(instructions: &[InstructionInfo]) -> HashMap<usize, String> {
+  let mut result: HashMap<usize, String> = Default::default();
+  let mut fn_counter = 0;
+
+  for info in instructions {
+    match &info.instruction {
+      Instruction::Enter { name, .. } => {
+        result.insert(
+          info.pos,
+          name.clone().unwrap_or_else(|| format!("func_{fn_counter}"))
+        );
+        fn_counter += 1;
+      }
+      Instruction::Jump { location }
+      | Instruction::JumpZero { location }
+      | Instruction::IfEqualJump { location }
+      | Instruction::IfNotEqualJump { location }
+      | Instruction::IfLowerThanJump { location }
+      | Instruction::IfGreaterThanJump { location }
+      | Instruction::IfLowerOrEqualJump { location }
+      | Instruction::IfGreaterOrEqualJump { location } => {
+        let _ = result.try_insert(*location as usize, format!("loc_{location:08X}"));
+      }
+      Instruction::Switch { cases } => {
+        for (_, location) in cases {
+          let _ = result.try_insert(*location as usize, format!("loc_{location:08X}"));
+        }
+      }
+      _ => {}
+    }
+  }
+
+  result
 }
 
 // Terrible code, please refactor :)

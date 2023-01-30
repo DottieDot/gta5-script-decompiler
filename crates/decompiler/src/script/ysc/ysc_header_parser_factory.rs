@@ -12,7 +12,7 @@ impl YscHeaderParserFactory {
     let magic = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
 
     let parser = match (magic, magic & 0xFFFF) {
-      (0x4005BE20 | 0x405A9ED0 | 0x52ACB3A8, _) | (_, 0xA588 | 0xB0B8) => PcYscHeaderParser,
+      (0x52ACB3A8 | 0x9204B3A8, _) | (_, 0xA588 | 0xB0B8) => PcYscHeaderParser,
       _ => return Err(UnknownMagicError { magic })
     };
 

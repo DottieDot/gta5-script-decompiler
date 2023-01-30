@@ -451,7 +451,7 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
 fn get_jump_address(reader: &mut BinaryReader) -> Result<u32, DisassembleError> {
   let offset = reader.read_i16()?;
   Ok(
-    add_i16_to_usize(reader.pos + 2, offset).ok_or(DisassembleError::InvalidJump {
+    add_i16_to_usize(reader.pos, offset).ok_or(DisassembleError::InvalidJump {
       pos: reader.pos,
       offset
     })? as u32

@@ -133,5 +133,5 @@ pub enum Opcode {
   PushConstF5,
   PushConstF6,
   PushConstF7,
-  BitTest,
+  BitTest
 }

@@ -112,7 +112,7 @@ impl YscHeaderParser for PcYscHeaderParser {
           name.push(char)
         }
         String::from_utf8(name)?
-      },
+      }
     })
   }
 }

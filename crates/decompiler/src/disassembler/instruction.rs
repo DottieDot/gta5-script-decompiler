@@ -1,6 +1,4 @@
-use strum::EnumString;
-
-#[derive(EnumString, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub enum Instruction {
   Nop,
   IntegerAdd,
@@ -39,85 +37,214 @@ pub enum Instruction {
   IntegerToFloat,
   FloatToInteger,
   FloatToVector,
-  PushConstU8(u8),
-  PushConstU8U8(u8, u8),
-  PushConstU8U8U8(u8, u8, u8),
-  PushConstU32(u32),
-  PushConstFloat(f32),
+  PushConstU8 {
+    c1: u8
+  },
+  PushConstU8U8 {
+    c1: u8,
+    c2: u8
+  },
+  PushConstU8U8U8 {
+    c1: u8,
+    c2: u8,
+    c3: u8
+  },
+  PushConstU32 {
+    c1: u32
+  },
+  PushConstFloat {
+    c1: f32
+  },
   Dup,
   Drop,
   NativeCall {
-    arg_count: u8,
+    arg_count:    u8,
     return_count: u8,
-    native_index: u16,
+    native_index: u16
   },
   Enter {
     parameter_count: u8,
-    var_count: u16,
-    name: Option<String>,
+    var_count:       u16,
+    name:            Option<String>
   },
-  Leave(u8, u8),
+  Leave {
+    parameter_count: u8,
+    return_count:    u8
+  },
   Load,
   Store,
   StoreRev,
   LoadN,
   StoreN,
-  ArrayU8(u8),
-  ArrayU8Load(u8),
-  ArrayU8Store(u8),
-  LocalU8(u8),
-  LocalU8Load(u8),
-  LocalU8Store(u8),
-  StaticU8(u8),
-  StaticU8Load(u8),
-  StaticU8Store(u8),
-  AddU8(u8),
-  MultiplyU8(u8),
+  ArrayU8 {
+    item_size: u8
+  },
+  ArrayU8Load {
+    item_size: u8
+  },
+  ArrayU8Store {
+    item_size: u8
+  },
+  LocalU8 {
+    local_index: u8
+  },
+  LocalU8Load {
+    local_index: u8
+  },
+  LocalU8Store {
+    local_index: u8
+  },
+  StaticU8 {
+    static_index: u8
+  },
+  StaticU8Load {
+    static_index: u8
+  },
+  StaticU8Store {
+    static_index: u8
+  },
+  AddU8 {
+    value: u8
+  },
+  MultiplyU8 {
+    value: u8
+  },
   Offset,
-  OffsetU8(u8),
-  OffsetU8Load(u8),
-  OffsetU8Store(u8),
-  PushConstS16(i16),
-  AddS16(i16),
-  MultiplyS16(i16),
-  OffsetS16(i16),
-  OffsetS16Load(i16),
-  OffsetS16Store(i16),
-  ArrayU16(u16),
-  ArrayU16Load(u16),
-  ArrayU16Store(u16),
-  LocalU16(u16),
-  LocalU16Load(u16),
-  LocalU16Store(u16),
-  StaticU16(u16),
-  StaticU16Load(u16),
-  StaticU16Store(u16),
-  GlobalU16(u16),
-  GlobalU16Load(u16),
-  GlobalU16Store(u16),
-  Jump(u32),
-  JumpZero(u32),
-  IfEqualJump(u32),
-  IfNotEqualJump(u32),
-  IfGreaterThanJump(u32),
-  IfGreaterOrEqualJump(u32),
-  IfLowerThanJump(u32),
-  IfLowerOrEqualJump(u32),
-  FunctionCall(u32),
-  StaticU24(u32),
-  StaticU24Load(u32),
-  StaticU24Store(u32),
-  GlobalU24(u32),
-  GlobalU24Load(u32),
-  GlobalU24Store(u32),
-  PushConstU24(u32),
-  Switch(Vec<(u32, u32)>),
+
+  /// Reference to the offset
+  OffsetU8 {
+    offset: u8
+  },
+
+  /// Reads the value at the offset
+  OffsetU8Load {
+    offset: u8
+  },
+
+  /// Sets the value at the offset
+  OffsetU8Store {
+    offset: u8
+  },
+
+  PushConstS16 {
+    c1: i16
+  },
+  AddS16 {
+    value: i16
+  },
+  MultiplyS16 {
+    value: i16
+  },
+  OffsetS16 {
+    offset: i16
+  },
+  OffsetS16Load {
+    offset: i16
+  },
+  OffsetS16Store {
+    offset: i16
+  },
+  ArrayU16 {
+    item_size: u16
+  },
+  ArrayU16Load {
+    item_size: u16
+  },
+  ArrayU16Store {
+    item_size: u16
+  },
+  LocalU16 {
+    local_index: u16
+  },
+  LocalU16Load {
+    local_index: u16
+  },
+  LocalU16Store {
+    local_index: u16
+  },
+  StaticU16 {
+    static_index: u16
+  },
+  StaticU16Load {
+    static_index: u16
+  },
+  StaticU16Store {
+    static_index: u16
+  },
+  GlobalU16 {
+    global_index: u16
+  },
+  GlobalU16Load {
+    global_index: u16
+  },
+  GlobalU16Store {
+    global_index: u16
+  },
+  Jump {
+    location: u32
+  },
+  JumpZero {
+    location: u32
+  },
+  IfEqualJump {
+    location: u32
+  },
+  IfNotEqualJump {
+    location: u32
+  },
+  IfGreaterThanJump {
+    location: u32
+  },
+  IfGreaterOrEqualJump {
+    location: u32
+  },
+  IfLowerThanJump {
+    location: u32
+  },
+  IfLowerOrEqualJump {
+    location: u32
+  },
+  FunctionCall {
+    location: u32
+  },
+  StaticU24 {
+    static_index: u32
+  },
+  StaticU24Load {
+    static_index: u32
+  },
+  StaticU24Store {
+    static_index: u32
+  },
+  GlobalU24 {
+    global_index: u32
+  },
+  GlobalU24Load {
+    global_index: u32
+  },
+  GlobalU24Store {
+    global_index: u32
+  },
+  PushConstU24 {
+    c1: u32
+  },
+  Switch {
+    cases: Vec<(u32, u32)>
+  },
   String,
   StringHash,
-  TextLabelAssignString(u8),
-  TextLabelAssignInt(u8),
-  TextLabelAppendString(u8),
-  TextLabelAppendInt(u8),
+  TextLabelAssignString {
+    buffer_size: u8
+  },
+  TextLabelAssignInt {
+    buffer_size: u8
+  },
+  TextLabelAppendString {
+    buffer_size: u8
+  },
+  TextLabelAppendInt {
+    buffer_size: u8
+  },
   TextLabelCopy,
   Catch,
   Throw,
@@ -140,5 +267,5 @@ pub enum Instruction {
   PushConstF5,
   PushConstF6,
   PushConstF7,
-  BitTest,
+  BitTest
 }

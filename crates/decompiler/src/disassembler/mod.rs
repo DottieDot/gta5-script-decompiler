@@ -3,7 +3,7 @@ use std::{io, string::FromUtf8Error};
 use binary_reader::{BinaryReader, Endian};
 use thiserror::Error;
 
-use self::{instruction_info::InstructionInfo, opcodes::Opcode};
+use self::opcodes::Opcode;
 
 mod instruction;
 mod instruction_info;
@@ -23,8 +23,8 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
     let raw_opcode = reader.read_u8()?;
     let instruction = match Opcode::try_from(raw_opcode).map_err(|e| {
       DisassembleError::ReadInstructionError {
-        input: raw_opcode,
-        source: e,
+        input:  raw_opcode,
+        source: e
       }
     })? {
       Opcode::Nop => Instruction::Nop,
@@ -64,13 +64,34 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
       Opcode::IntegerToFloat => Instruction::IntegerToFloat,
       Opcode::FloatToInteger => Instruction::FloatToInteger,
       Opcode::FloatToVector => Instruction::FloatToVector,
-      Opcode::PushConstU8 => Instruction::PushConstU8(reader.read_u8()?),
-      Opcode::PushConstU8U8 => Instruction::PushConstU8U8(reader.read_u8()?, reader.read_u8()?),
-      Opcode::PushConstU8U8U8 => {
-        Instruction::PushConstU8U8U8(reader.read_u8()?, reader.read_u8()?, reader.read_u8()?)
+      Opcode::PushConstU8 => {
+        Instruction::PushConstU8 {
+          c1: reader.read_u8()?
+        }
       }
-      Opcode::PushConstU32 => Instruction::PushConstU32(reader.read_u32()?),
-      Opcode::PushConstFloat => Instruction::PushConstFloat(reader.read_f32()?),
+      Opcode::PushConstU8U8 => {
+        Instruction::PushConstU8U8 {
+          c1: reader.read_u8()?,
+          c2: reader.read_u8()?
+        }
+      }
+      Opcode::PushConstU8U8U8 => {
+        Instruction::PushConstU8U8U8 {
+          c1: reader.read_u8()?,
+          c2: reader.read_u8()?,
+          c3: reader.read_u8()?
+        }
+      }
+      Opcode::PushConstU32 => {
+        Instruction::PushConstU32 {
+          c1: reader.read_u32()?
+        }
+      }
+      Opcode::PushConstFloat => {
+        Instruction::PushConstFloat {
+          c1: reader.read_f32()?
+        }
+      }
       Opcode::Dup => Instruction::Dup,
       Opcode::Drop => Instruction::Drop,
       Opcode::NativeCall => {
@@ -80,102 +101,319 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
         Instruction::NativeCall {
           arg_count,
           return_count,
-          native_index: reader.read_u16()?,
+          native_index: reader.read_u16()?
         }
       }
-      Opcode::Enter => Instruction::Enter {
-        parameter_count: reader.read_u8()?,
-        var_count: reader.read_u16()?,
-        name: {
-          let length = reader.read_u8()?;
-          if length == 0 {
-            None
-          } else {
-            Some(
-              String::from_utf8(reader.read_bytes(length as usize)?.to_vec()).map_err(|e| {
-                DisassembleError::InvalidFunctionNameError {
-                  pos: reader.pos,
-                  source: e,
-                }
-              })?,
-            )
+      Opcode::Enter => {
+        Instruction::Enter {
+          parameter_count: reader.read_u8()?,
+          var_count:       reader.read_u16()?,
+          name:            {
+            let length = reader.read_u8()?;
+            if length == 0 {
+              None
+            } else {
+              Some(
+                String::from_utf8(reader.read_bytes(length as usize)?.to_vec()).map_err(|e| {
+                  DisassembleError::InvalidFunctionNameError {
+                    pos:    reader.pos,
+                    source: e
+                  }
+                })?
+              )
+            }
           }
-        },
-      },
-      Opcode::Leave => Instruction::Leave(reader.read_u8()?, reader.read_u8()?),
+        }
+      }
+      Opcode::Leave => {
+        Instruction::Leave {
+          parameter_count: reader.read_u8()?,
+          return_count:    reader.read_u8()?
+        }
+      }
       Opcode::Load => Instruction::Load,
       Opcode::Store => Instruction::Store,
       Opcode::StoreRev => Instruction::StoreRev,
       Opcode::LoadN => Instruction::LoadN,
       Opcode::StoreN => Instruction::StoreN,
-      Opcode::ArrayU8 => Instruction::ArrayU8(reader.read_u8()?),
-      Opcode::ArrayU8Load => Instruction::ArrayU8Load(reader.read_u8()?),
-      Opcode::ArrayU8Store => Instruction::ArrayU8Store(reader.read_u8()?),
-      Opcode::LocalU8 => Instruction::LocalU8(reader.read_u8()?),
-      Opcode::LocalU8Load => Instruction::LocalU8Load(reader.read_u8()?),
-      Opcode::LocalU8Store => Instruction::LocalU8Store(reader.read_u8()?),
-      Opcode::StaticU8 => Instruction::StaticU8(reader.read_u8()?),
-      Opcode::StaticU8Load => Instruction::StaticU8Load(reader.read_u8()?),
-      Opcode::StaticU8Store => Instruction::StaticU8Store(reader.read_u8()?),
-      Opcode::AddU8 => Instruction::AddU8(reader.read_u8()?),
-      Opcode::MultiplyU8 => Instruction::MultiplyU8(reader.read_u8()?),
-      Opcode::Offset => Instruction::Offset,
-      Opcode::OffsetU8 => Instruction::OffsetU8(reader.read_u8()?),
-      Opcode::OffsetU8Load => Instruction::OffsetU8Load(reader.read_u8()?),
-      Opcode::OffsetU8Store => Instruction::OffsetU8Store(reader.read_u8()?),
-      Opcode::PushConstS16 => Instruction::PushConstS16(reader.read_i16()?),
-      Opcode::AddS16 => Instruction::AddS16(reader.read_i16()?),
-      Opcode::MultiplyS16 => Instruction::MultiplyS16(reader.read_i16()?),
-      Opcode::OffsetS16 => Instruction::OffsetS16(reader.read_i16()?),
-      Opcode::OffsetS16Load => Instruction::OffsetS16Load(reader.read_i16()?),
-      Opcode::OffsetS16Store => Instruction::OffsetS16Store(reader.read_i16()?),
-      Opcode::ArrayU16 => Instruction::ArrayU16(reader.read_u16()?),
-      Opcode::ArrayU16Load => Instruction::ArrayU16Load(reader.read_u16()?),
-      Opcode::ArrayU16Store => Instruction::ArrayU16Store(reader.read_u16()?),
-      Opcode::LocalU16 => Instruction::LocalU16(reader.read_u16()?),
-      Opcode::LocalU16Load => Instruction::LocalU16Load(reader.read_u16()?),
-      Opcode::LocalU16Store => Instruction::LocalU16Store(reader.read_u16()?),
-      Opcode::StaticU16 => Instruction::StaticU16(reader.read_u16()?),
-      Opcode::StaticU16Load => Instruction::StaticU16Load(reader.read_u16()?),
-      Opcode::StaticU16Store => Instruction::StaticU16Store(reader.read_u16()?),
-      Opcode::GlobalU16 => Instruction::GlobalU16(reader.read_u16()?),
-      Opcode::GlobalU16Load => Instruction::GlobalU16Load(reader.read_u16()?),
-      Opcode::GlobalU16Store => Instruction::GlobalU16Store(reader.read_u16()?),
-      Opcode::Jump => Instruction::Jump(get_jump_address(&mut reader)?),
-      Opcode::JumpZero => Instruction::JumpZero(get_jump_address(&mut reader)?),
-      Opcode::IfEqualJump => Instruction::IfEqualJump(get_jump_address(&mut reader)?),
-      Opcode::IfNotEqualJump => Instruction::IfNotEqualJump(get_jump_address(&mut reader)?),
-      Opcode::IfGreaterThanJump => Instruction::IfGreaterThanJump(get_jump_address(&mut reader)?),
-      Opcode::IfGreaterOrEqualJump => {
-        Instruction::IfGreaterOrEqualJump(get_jump_address(&mut reader)?)
+      Opcode::ArrayU8 => {
+        Instruction::ArrayU8 {
+          item_size: reader.read_u8()?
+        }
       }
-      Opcode::IfLowerThanJump => Instruction::IfLowerThanJump(get_jump_address(&mut reader)?),
-      Opcode::IfLowerOrEqualJump => Instruction::IfLowerOrEqualJump(get_jump_address(&mut reader)?),
-      Opcode::FunctionCall => Instruction::FunctionCall(reader.read_u24()?),
-      Opcode::StaticU24 => Instruction::StaticU24(reader.read_u24()?),
-      Opcode::StaticU24Load => Instruction::StaticU24Load(reader.read_u24()?),
-      Opcode::StaticU24Store => Instruction::StaticU24Store(reader.read_u24()?),
-      Opcode::GlobalU24 => Instruction::GlobalU24(reader.read_u24()?),
-      Opcode::GlobalU24Load => Instruction::GlobalU24Load(reader.read_u24()?),
-      Opcode::GlobalU24Store => Instruction::GlobalU24Store(reader.read_u24()?),
-      Opcode::PushConstU24 => Instruction::PushConstU24(reader.read_u24()?),
-      Opcode::Switch => Instruction::Switch({
-        let count = reader.read_u8()?;
-        (0..count)
-          .map(|_| {
-            reader
-              .read_u32()
-              .map_err(DisassembleError::from)
-              .and_then(|v| get_jump_address(&mut reader).map(|v2| (v, v2)))
-          })
-          .collect::<Result<_, _>>()?
-      }),
+      Opcode::ArrayU8Load => {
+        Instruction::ArrayU8Load {
+          item_size: reader.read_u8()?
+        }
+      }
+      Opcode::ArrayU8Store => {
+        Instruction::ArrayU8Store {
+          item_size: reader.read_u8()?
+        }
+      }
+      Opcode::LocalU8 => {
+        Instruction::LocalU8 {
+          local_index: reader.read_u8()?
+        }
+      }
+      Opcode::LocalU8Load => {
+        Instruction::LocalU8Load {
+          local_index: reader.read_u8()?
+        }
+      }
+      Opcode::LocalU8Store => {
+        Instruction::LocalU8Store {
+          local_index: reader.read_u8()?
+        }
+      }
+      Opcode::StaticU8 => {
+        Instruction::StaticU8 {
+          static_index: reader.read_u8()?
+        }
+      }
+      Opcode::StaticU8Load => {
+        Instruction::StaticU8Load {
+          static_index: reader.read_u8()?
+        }
+      }
+      Opcode::StaticU8Store => {
+        Instruction::StaticU8Store {
+          static_index: reader.read_u8()?
+        }
+      }
+      Opcode::AddU8 => {
+        Instruction::AddU8 {
+          value: reader.read_u8()?
+        }
+      }
+      Opcode::MultiplyU8 => {
+        Instruction::MultiplyU8 {
+          value: reader.read_u8()?
+        }
+      }
+      Opcode::Offset => Instruction::Offset,
+      Opcode::OffsetU8 => {
+        Instruction::OffsetU8 {
+          offset: reader.read_u8()?
+        }
+      }
+      Opcode::OffsetU8Load => {
+        Instruction::OffsetU8Load {
+          offset: reader.read_u8()?
+        }
+      }
+      Opcode::OffsetU8Store => {
+        Instruction::OffsetU8Store {
+          offset: reader.read_u8()?
+        }
+      }
+      Opcode::PushConstS16 => {
+        Instruction::PushConstS16 {
+          c1: reader.read_i16()?
+        }
+      }
+      Opcode::AddS16 => {
+        Instruction::AddS16 {
+          value: reader.read_i16()?
+        }
+      }
+      Opcode::MultiplyS16 => {
+        Instruction::MultiplyS16 {
+          value: reader.read_i16()?
+        }
+      }
+      Opcode::OffsetS16 => {
+        Instruction::OffsetS16 {
+          offset: reader.read_i16()?
+        }
+      }
+      Opcode::OffsetS16Load => {
+        Instruction::OffsetS16Load {
+          offset: reader.read_i16()?
+        }
+      }
+      Opcode::OffsetS16Store => {
+        Instruction::OffsetS16Store {
+          offset: reader.read_i16()?
+        }
+      }
+      Opcode::ArrayU16 => {
+        Instruction::ArrayU16 {
+          item_size: reader.read_u16()?
+        }
+      }
+      Opcode::ArrayU16Load => {
+        Instruction::ArrayU16Load {
+          item_size: reader.read_u16()?
+        }
+      }
+      Opcode::ArrayU16Store => {
+        Instruction::ArrayU16Store {
+          item_size: reader.read_u16()?
+        }
+      }
+      Opcode::LocalU16 => {
+        Instruction::LocalU16 {
+          local_index: reader.read_u16()?
+        }
+      }
+      Opcode::LocalU16Load => {
+        Instruction::LocalU16Load {
+          local_index: reader.read_u16()?
+        }
+      }
+      Opcode::LocalU16Store => {
+        Instruction::LocalU16Store {
+          local_index: reader.read_u16()?
+        }
+      }
+      Opcode::StaticU16 => {
+        Instruction::StaticU16 {
+          static_index: reader.read_u16()?
+        }
+      }
+      Opcode::StaticU16Load => {
+        Instruction::StaticU16Load {
+          static_index: reader.read_u16()?
+        }
+      }
+      Opcode::StaticU16Store => {
+        Instruction::StaticU16Store {
+          static_index: reader.read_u16()?
+        }
+      }
+      Opcode::GlobalU16 => {
+        Instruction::GlobalU16 {
+          global_index: reader.read_u16()?
+        }
+      }
+      Opcode::GlobalU16Load => {
+        Instruction::GlobalU16Load {
+          global_index: reader.read_u16()?
+        }
+      }
+      Opcode::GlobalU16Store => {
+        Instruction::GlobalU16Store {
+          global_index: reader.read_u16()?
+        }
+      }
+      Opcode::Jump => {
+        Instruction::Jump {
+          location: get_jump_address(&mut reader)?
+        }
+      }
+      Opcode::JumpZero => {
+        Instruction::JumpZero {
+          location: get_jump_address(&mut reader)?
+        }
+      }
+      Opcode::IfEqualJump => {
+        Instruction::IfEqualJump {
+          location: get_jump_address(&mut reader)?
+        }
+      }
+      Opcode::IfNotEqualJump => {
+        Instruction::IfNotEqualJump {
+          location: get_jump_address(&mut reader)?
+        }
+      }
+      Opcode::IfGreaterThanJump => {
+        Instruction::IfGreaterThanJump {
+          location: get_jump_address(&mut reader)?
+        }
+      }
+      Opcode::IfGreaterOrEqualJump => {
+        Instruction::IfGreaterOrEqualJump {
+          location: get_jump_address(&mut reader)?
+        }
+      }
+      Opcode::IfLowerThanJump => {
+        Instruction::IfLowerThanJump {
+          location: get_jump_address(&mut reader)?
+        }
+      }
+      Opcode::IfLowerOrEqualJump => {
+        Instruction::IfLowerOrEqualJump {
+          location: get_jump_address(&mut reader)?
+        }
+      }
+      Opcode::FunctionCall => {
+        Instruction::FunctionCall {
+          location: reader.read_u24()?
+        }
+      }
+      Opcode::StaticU24 => {
+        Instruction::StaticU24 {
+          static_index: reader.read_u24()?
+        }
+      }
+      Opcode::StaticU24Load => {
+        Instruction::StaticU24Load {
+          static_index: reader.read_u24()?
+        }
+      }
+      Opcode::StaticU24Store => {
+        Instruction::StaticU24Store {
+          static_index: reader.read_u24()?
+        }
+      }
+      Opcode::GlobalU24 => {
+        Instruction::GlobalU24 {
+          global_index: reader.read_u24()?
+        }
+      }
+      Opcode::GlobalU24Load => {
+        Instruction::GlobalU24Load {
+          global_index: reader.read_u24()?
+        }
+      }
+      Opcode::GlobalU24Store => {
+        Instruction::GlobalU24Store {
+          global_index: reader.read_u24()?
+        }
+      }
+      Opcode::PushConstU24 => {
+        Instruction::PushConstU24 {
+          c1: reader.read_u24()?
+        }
+      }
+      Opcode::Switch => {
+        Instruction::Switch {
+          cases: {
+            let count = reader.read_u8()?;
+            (0..count)
+              .map(|_| {
+                reader
+                  .read_u32()
+                  .map_err(DisassembleError::from)
+                  .and_then(|v| get_jump_address(&mut reader).map(|v2| (v, v2)))
+              })
+              .collect::<Result<_, _>>()?
+          }
+        }
+      }
       Opcode::String => Instruction::String,
       Opcode::StringHash => Instruction::StringHash,
-      Opcode::TextLabelAssignString => Instruction::TextLabelAssignString(reader.read_u8()?),
-      Opcode::TextLabelAssignInt => Instruction::TextLabelAssignInt(reader.read_u8()?),
-      Opcode::TextLabelAppendString => Instruction::TextLabelAppendString(reader.read_u8()?),
-      Opcode::TextLabelAppendInt => Instruction::TextLabelAppendInt(reader.read_u8()?),
+      Opcode::TextLabelAssignString => {
+        Instruction::TextLabelAssignString {
+          buffer_size: reader.read_u8()?
+        }
+      }
+      Opcode::TextLabelAssignInt => {
+        Instruction::TextLabelAssignInt {
+          buffer_size: reader.read_u8()?
+        }
+      }
+      Opcode::TextLabelAppendString => {
+        Instruction::TextLabelAppendString {
+          buffer_size: reader.read_u8()?
+        }
+      }
+      Opcode::TextLabelAppendInt => {
+        Instruction::TextLabelAppendInt {
+          buffer_size: reader.read_u8()?
+        }
+      }
       Opcode::TextLabelCopy => Instruction::TextLabelCopy,
       Opcode::Catch => Instruction::Catch,
       Opcode::Throw => Instruction::Throw,
@@ -198,12 +436,12 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
       Opcode::PushConstF5 => Instruction::PushConstF5,
       Opcode::PushConstF6 => Instruction::PushConstF6,
       Opcode::PushConstF7 => Instruction::PushConstF7,
-      Opcode::BitTest => Instruction::BitTest,
+      Opcode::BitTest => Instruction::BitTest
     };
     result.push(InstructionInfo {
       instruction,
       pos: start_pos,
-      size: reader.pos - start_pos,
+      size: reader.pos - start_pos
     });
   }
 
@@ -215,8 +453,8 @@ fn get_jump_address(reader: &mut BinaryReader) -> Result<u32, DisassembleError> 
   Ok(
     add_i16_to_usize(reader.pos + 2, offset).ok_or(DisassembleError::InvalidJump {
       pos: reader.pos,
-      offset,
-    })? as u32,
+      offset
+    })? as u32
   )
 }
 
@@ -232,16 +470,16 @@ fn add_i16_to_usize(usize: usize, i16: i16) -> Option<usize> {
 pub enum DisassembleError {
   #[error("{} is not a recognized instruction", input)]
   ReadInstructionError {
-    input: u8,
+    input:  u8,
     #[source]
-    source: <Opcode as TryFrom<u8>>::Error,
+    source: <Opcode as TryFrom<u8>>::Error
   },
 
   #[error("Read error: {}", source)]
   ReadError {
     #[source]
     #[from]
-    source: io::Error,
+    source: io::Error
   },
 
   #[error("Invalid jump offset at: {}, with offset: {}", pos, offset)]
@@ -249,8 +487,8 @@ pub enum DisassembleError {
 
   #[error("Failed to parse function name at: {}", pos)]
   InvalidFunctionNameError {
-    pos: usize,
+    pos:    usize,
     #[source]
-    source: FromUtf8Error,
-  },
+    source: FromUtf8Error
+  }
 }

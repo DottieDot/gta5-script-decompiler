@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 gta5-script-decompiler = { path = "../decompiler" }
+anyhow = "1.0.68"

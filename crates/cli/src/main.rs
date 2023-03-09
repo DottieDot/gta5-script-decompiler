@@ -5,8 +5,7 @@ use gta5_script_decompiler::{
 };
 
 fn main() -> anyhow::Result<()> {
-  let script =
-    parse_ysc_file(r"C:\Users\Tvang\Desktop\shop_controller_ysc\shop_controller.ysc.full")?;
+  let script = parse_ysc_file(r"C:\Users\Tvang\Desktop\freemode_ysc\freemode.ysc.full")?;
   let disassembly = disassemble(&script.code)?;
 
   let formatter = AssemblyFormatter {
@@ -16,7 +15,7 @@ fn main() -> anyhow::Result<()> {
 
   let output = formatter.format(&script.code, &disassembly);
 
-  fs::write("output.txt", output)?;
+  fs::write("output.scasm", output)?;
 
   Ok(())
 }

@@ -106,9 +106,9 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
       }
       Opcode::Enter => {
         Instruction::Enter {
-          parameter_count: reader.read_u8()?,
-          var_count:       reader.read_u16()?,
-          name:            {
+          arg_count:  reader.read_u8()?,
+          frame_size: reader.read_u16()?,
+          name:       {
             let length = reader.read_u8()?;
             if length == 0 {
               None
@@ -153,17 +153,17 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
       }
       Opcode::LocalU8 => {
         Instruction::LocalU8 {
-          local_index: reader.read_u8()?
+          offset: reader.read_u8()?
         }
       }
       Opcode::LocalU8Load => {
         Instruction::LocalU8Load {
-          local_index: reader.read_u8()?
+          offset: reader.read_u8()?
         }
       }
       Opcode::LocalU8Store => {
         Instruction::LocalU8Store {
-          local_index: reader.read_u8()?
+          offset: reader.read_u8()?
         }
       }
       Opcode::StaticU8 => {
@@ -307,33 +307,33 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
           location: get_jump_address(&mut reader)?
         }
       }
-      Opcode::IfEqualJump => {
-        Instruction::IfEqualJump {
+      Opcode::IfEqualJumpZero => {
+        Instruction::IfEqualJumpZero {
           location: get_jump_address(&mut reader)?
         }
       }
-      Opcode::IfNotEqualJump => {
-        Instruction::IfNotEqualJump {
+      Opcode::IfNotEqualJumpZero => {
+        Instruction::IfNotEqualJumpZero {
           location: get_jump_address(&mut reader)?
         }
       }
-      Opcode::IfGreaterThanJump => {
-        Instruction::IfGreaterThanJump {
+      Opcode::IfGreaterThanJumpZero => {
+        Instruction::IfGreaterThanJumpZero {
           location: get_jump_address(&mut reader)?
         }
       }
-      Opcode::IfGreaterOrEqualJump => {
-        Instruction::IfGreaterOrEqualJump {
+      Opcode::IfGreaterOrEqualJumpZero => {
+        Instruction::IfGreaterOrEqualJumpZero {
           location: get_jump_address(&mut reader)?
         }
       }
-      Opcode::IfLowerThanJump => {
-        Instruction::IfLowerThanJump {
+      Opcode::IfLowerThanJumpZero => {
+        Instruction::IfLowerThanJumpZero {
           location: get_jump_address(&mut reader)?
         }
       }
-      Opcode::IfLowerOrEqualJump => {
-        Instruction::IfLowerOrEqualJump {
+      Opcode::IfLowerOrEqualJumpZero => {
+        Instruction::IfLowerOrEqualJumpZero {
           location: get_jump_address(&mut reader)?
         }
       }
@@ -386,7 +386,14 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
                 reader
                   .read_u32()
                   .map_err(DisassembleError::from)
-                  .and_then(|v| get_jump_address(&mut reader).map(|v2| (v, v2)))
+                  .and_then(|v| {
+                    get_jump_address(&mut reader).map(|v2| {
+                      SwitchCase {
+                        value:    v,
+                        location: v2
+                      }
+                    })
+                  })
               })
               .collect::<Result<_, _>>()?
           }

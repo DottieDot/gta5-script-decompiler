@@ -3,6 +3,9 @@
 /// Details based on <https://github.com/alexguirre/gtav-sc-tools/blob/master/docs/InstructionSet.md>.
 #[derive(Clone, Debug)]
 pub enum Instruction {
+  /// # Mnemonic
+  /// NOP
+  ///
   /// # Description
   /// No operation
   Nop,
@@ -10,7 +13,7 @@ pub enum Instruction {
   /// # Mnemonic
   /// IADD
   ///
-  ///  # Description
+  /// # Description
   /// Adds `i1` and `i2`.
   ///
   /// # Stack

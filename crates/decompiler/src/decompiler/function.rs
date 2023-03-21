@@ -1,6 +1,8 @@
 use crate::disassembler::InstructionInfo;
 
 pub struct Function<'input> {
-  name:         String,
-  instructions: &'input [InstructionInfo]
+  pub name:         String,
+  pub parameters:   u32,
+  pub return_count: u32,
+  pub instructions: &'input [InstructionInfo]
 }

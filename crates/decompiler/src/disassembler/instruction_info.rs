@@ -1,7 +1,7 @@
 use super::Instruction;
 
-pub struct InstructionInfo {
+pub struct InstructionInfo<'input> {
   pub instruction: Instruction,
   pub pos:         usize,
-  pub size:        usize
+  pub bytes:       &'input [u8]
 }

@@ -8,12 +8,9 @@ fn main() -> anyhow::Result<()> {
   let script = parse_ysc_file(r"C:\Users\Tvang\Desktop\freemode_ysc\freemode.ysc.full")?;
   let disassembly = disassemble(&script.code)?;
 
-  let formatter = AssemblyFormatter {
-    include_offset:    true,
-    max_bytes_to_show: 8
-  };
+  let formatter = AssemblyFormatter::new(&disassembly, true, 8);
 
-  let output = formatter.format(&script.code, &disassembly);
+  let output = formatter.format(&disassembly, true);
 
   fs::write("output.scasm", output)?;
 

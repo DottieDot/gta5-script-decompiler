@@ -3,17 +3,29 @@ use std::collections::{HashMap, LinkedList};
 use crate::disassembler::{Instruction, InstructionInfo, SwitchCase};
 
 pub struct AssemblyFormatter {
-  pub include_offset:    bool,
-  pub max_bytes_to_show: usize
+  include_offset:    bool,
+  max_bytes_to_show: usize,
+  labels:            HashMap<usize, String>
 }
 
 impl AssemblyFormatter {
-  pub fn format(&self, code: &[u8], instructions: &[InstructionInfo]) -> String {
-    let labels = create_labels(instructions);
+  pub fn new(
+    instructions: &[InstructionInfo],
+    include_offset: bool,
+    max_bytes_to_show: usize
+  ) -> Self {
+    Self {
+      include_offset,
+      max_bytes_to_show,
+      labels: create_labels(instructions)
+    }
+  }
+
+  pub fn format(&self, instructions: &[InstructionInfo], show_function_separators: bool) -> String {
     let mut lines: LinkedList<String> = Default::default();
 
     for info in instructions {
-      let bytes = create_byte_string(code, self.max_bytes_to_show, info.pos, info.size);
+      let bytes = create_byte_string(info.bytes, self.max_bytes_to_show, info.bytes.len());
       let bytes_len = bytes.len();
 
       let prefix = if self.include_offset {
@@ -28,7 +40,7 @@ impl AssemblyFormatter {
         " ".repeat(bytes_len)
       };
 
-      if let Some(label) = labels.get(&info.pos) {
+      if let Some(label) = self.labels.get(&info.pos) {
         if !matches!(&info.instruction, Instruction::Enter { .. }) {
           lines.push_back(prefix_without_bytes.clone());
           lines.push_back(format!("{prefix_without_bytes}.{label}:"));
@@ -102,13 +114,15 @@ impl AssemblyFormatter {
           frame_size: var_count,
           name
         } => {
-          let display_name = labels.get(&info.pos).expect("unlabeled function name");
+          let display_name = self.labels.get(&info.pos).expect("unlabeled function name");
 
-          lines.push_back(prefix_without_bytes.clone());
-          lines.push_back(format!(
-            "{prefix_without_bytes}; ========== F U N C T I O N =========="
-          ));
-          lines.push_back(prefix_without_bytes.clone());
+          if show_function_separators {
+            lines.push_back(prefix_without_bytes.clone());
+            lines.push_back(format!(
+              "{prefix_without_bytes}; ========== F U N C T I O N =========="
+            ));
+            lines.push_back(prefix_without_bytes.clone());
+          }
           lines.push_back(format!("{prefix_without_bytes}.{display_name}:"));
           lines.push_back(if let Some(name) = name {
             format!("{prefix}\tENTER {parameter_count} {var_count} \"{name}\"")
@@ -220,7 +234,8 @@ impl AssemblyFormatter {
         Instruction::Jump { location } => {
           lines.push_back(format!(
             "{prefix}\tJ {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled jump location")
           ))
@@ -228,7 +243,8 @@ impl AssemblyFormatter {
         Instruction::JumpZero { location } => {
           lines.push_back(format!(
             "{prefix}\tJZ {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled jump location")
           ))
@@ -236,7 +252,8 @@ impl AssemblyFormatter {
         Instruction::IfEqualJumpZero { location } => {
           lines.push_back(format!(
             "{prefix}\tIEQ_JZ {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled jump location")
           ))
@@ -244,7 +261,8 @@ impl AssemblyFormatter {
         Instruction::IfNotEqualJumpZero { location } => {
           lines.push_back(format!(
             "{prefix}\tINE_JZ {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled jump location")
           ))
@@ -252,7 +270,8 @@ impl AssemblyFormatter {
         Instruction::IfGreaterThanJumpZero { location } => {
           lines.push_back(format!(
             "{prefix}\tIGT_JZ {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled jump location")
           ))
@@ -260,7 +279,8 @@ impl AssemblyFormatter {
         Instruction::IfGreaterOrEqualJumpZero { location } => {
           lines.push_back(format!(
             "{prefix}\tIGE_JZ {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled jump location")
           ))
@@ -268,7 +288,8 @@ impl AssemblyFormatter {
         Instruction::IfLowerThanJumpZero { location } => {
           lines.push_back(format!(
             "{prefix}\tILT_JZ {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled jump location")
           ))
@@ -276,7 +297,8 @@ impl AssemblyFormatter {
         Instruction::IfLowerOrEqualJumpZero { location } => {
           lines.push_back(format!(
             "{prefix}\tILE_JZ {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled jump location")
           ))
@@ -284,7 +306,8 @@ impl AssemblyFormatter {
         Instruction::FunctionCall { location } => {
           lines.push_back(format!(
             "{prefix}\tCALL {}",
-            labels
+            self
+              .labels
               .get(&(*location as usize))
               .expect("unlabeled call location")
           ))
@@ -315,7 +338,8 @@ impl AssemblyFormatter {
           lines.extend(cases.iter().map(|SwitchCase { value, location }| {
             format!(
               "{prefix_without_bytes}\t\tCASE 0x{value:08X} {} ; {value}",
-              labels
+              self
+                .labels
                 .get(&(*location as usize))
                 .expect("unlabeled switch case location")
             )
@@ -402,7 +426,7 @@ fn create_labels(instructions: &[InstructionInfo]) -> HashMap<usize, String> {
 }
 
 // Terrible code, please refactor :)
-fn create_byte_string(code: &[u8], max_bytes: usize, offset: usize, count: usize) -> String {
+fn create_byte_string(code: &[u8], max_bytes: usize, count: usize) -> String {
   if max_bytes == 0 {
     return "".to_owned();
   }
@@ -423,7 +447,7 @@ fn create_byte_string(code: &[u8], max_bytes: usize, offset: usize, count: usize
 
   let num_bytes = usize::min(count, max_bytes).saturating_sub(bytes_to_hide);
 
-  let mut bytes = code[offset..offset + num_bytes]
+  let mut bytes = code[0..num_bytes]
     .iter()
     .map(|byte| format!("{byte:02X} "))
     .collect::<String>();

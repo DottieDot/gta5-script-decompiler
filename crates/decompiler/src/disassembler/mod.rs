@@ -448,7 +448,7 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
     result.push(InstructionInfo {
       instruction,
       pos: start_pos,
-      size: reader.pos - start_pos
+      bytes: &code[start_pos..reader.pos]
     });
   }
 

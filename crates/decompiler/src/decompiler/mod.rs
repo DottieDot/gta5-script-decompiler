@@ -5,7 +5,9 @@ use self::function::Function;
 mod function;
 mod stack_entry;
 
-fn find_functions(instructions: &[InstructionInfo]) -> Vec<Function> {
+fn find_functions<'bytes, 'input: 'bytes>(
+  instructions: &'input [InstructionInfo]
+) -> Vec<Function<'input, 'bytes>> {
   let mut result = vec![];
   let mut it = instructions.iter().enumerate();
 

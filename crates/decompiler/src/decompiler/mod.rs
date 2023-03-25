@@ -1,8 +1,12 @@
-use crate::disassembler::{Instruction, InstructionInfo};
+use crate::{
+  disassembler::{Instruction, InstructionInfo},
+  formatters::AssemblyFormatter
+};
 
 use self::function::Function;
 
 mod function;
+mod function_graph;
 mod stack_entry;
 
 fn find_functions<'bytes, 'input: 'bytes>(
@@ -32,4 +36,13 @@ fn find_functions<'bytes, 'input: 'bytes>(
 
 pub fn decompile(instructions: &[InstructionInfo]) {
   let functions = find_functions(instructions);
+}
+
+pub fn function_dot_string(
+  instructions: &[InstructionInfo],
+  function: usize,
+  formatter: AssemblyFormatter
+) -> String {
+  let functions = find_functions(instructions);
+  functions[function].dot_string(formatter)
 }

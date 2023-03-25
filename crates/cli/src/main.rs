@@ -1,7 +1,8 @@
 use std::fs;
 
 use gta5_script_decompiler::{
-  disassembler::disassemble, formatters::AssemblyFormatter, script::parse_ysc_file
+  decompiler::function_dot_string, disassembler::disassemble, formatters::AssemblyFormatter,
+  script::parse_ysc_file
 };
 
 fn main() -> anyhow::Result<()> {
@@ -13,6 +14,14 @@ fn main() -> anyhow::Result<()> {
   let output = formatter.format(&disassembly, true);
 
   fs::write("output.scasm", output)?;
+
+  let dot = function_dot_string(
+    &disassembly,
+    19020,
+    AssemblyFormatter::new(&disassembly, false, 0)
+  );
+
+  fs::write("output.dot", dot)?;
 
   Ok(())
 }

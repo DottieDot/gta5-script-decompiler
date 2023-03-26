@@ -43,6 +43,11 @@ impl FunctionGraph {
       let next = instruction.pos + instruction.bytes.len();
 
       match &instruction.instruction {
+        Instruction::Leave { .. } => {
+          graph.nodes.push((cindex, index));
+          current_index = None;
+          current_node = None;
+        }
         Instruction::Jump { location } => {
           graph.add_join(cnode, *location as usize);
           graph.nodes.push((cindex, index));
@@ -96,8 +101,9 @@ impl FunctionGraph {
         "node_{pos}[label=\"{assembly}\\l\",shape=rectangle,color={color}]",
         assembly = assembly
           .trim_start_matches('\n')
-          .replace("\n", "\\l")
-          .replace("\t", "    "),
+          .replace('\n', "\\l")
+          .replace('\t', "    ")
+          .replace('"', "\\\""),
         color = {
           if first {
             first = false;

@@ -9,7 +9,7 @@ fn main() -> anyhow::Result<()> {
   let script = parse_ysc_file(r"C:\Users\Tvang\Desktop\freemode_ysc\freemode.ysc.full")?;
   let disassembly = disassemble(&script.code)?;
 
-  let formatter = AssemblyFormatter::new(&disassembly, true, 8);
+  let formatter = AssemblyFormatter::new(&disassembly, true, 8, &script.strings);
 
   let output = formatter.format(&disassembly, true);
 
@@ -17,8 +17,8 @@ fn main() -> anyhow::Result<()> {
 
   let dot = function_dot_string(
     &disassembly,
-    19043,
-    AssemblyFormatter::new(&disassembly, false, 0)
+    19735,
+    AssemblyFormatter::new(&disassembly, false, 0, &script.strings)
   );
 
   fs::write("output.dot", dot)?;

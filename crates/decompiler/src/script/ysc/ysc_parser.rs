@@ -1,4 +1,4 @@
-use std::{cmp, fs, io, path::Path};
+use std::{cmp, fs, io, path::Path, string::FromUtf8Error};
 
 use thiserror::Error;
 

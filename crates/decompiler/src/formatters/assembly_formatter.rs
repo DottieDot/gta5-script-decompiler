@@ -2,27 +2,31 @@ use std::collections::{HashMap, LinkedList};
 
 use crate::disassembler::{Instruction, InstructionInfo, SwitchCase};
 
-pub struct AssemblyFormatter {
+pub struct AssemblyFormatter<'strings> {
   include_offset:    bool,
   max_bytes_to_show: usize,
-  labels:            HashMap<usize, String>
+  labels:            HashMap<usize, String>,
+  string_table:      &'strings [u8]
 }
 
-impl AssemblyFormatter {
+impl<'strings> AssemblyFormatter<'strings> {
   pub fn new(
     instructions: &[InstructionInfo],
     include_offset: bool,
-    max_bytes_to_show: usize
+    max_bytes_to_show: usize,
+    string_table: &'strings [u8]
   ) -> Self {
     Self {
       include_offset,
       max_bytes_to_show,
-      labels: create_labels(instructions)
+      labels: create_labels(instructions),
+      string_table
     }
   }
 
   pub fn format(&self, instructions: &[InstructionInfo], show_function_separators: bool) -> String {
     let mut lines: LinkedList<String> = Default::default();
+    let mut last_constant: u32 = 0;
 
     for info in instructions {
       let bytes = create_byte_string(info.bytes, self.max_bytes_to_show, info.bytes.len());
@@ -85,14 +89,20 @@ impl AssemblyFormatter {
         Instruction::IntegerToFloat => lines.push_back(format!("{prefix}\tI2F")),
         Instruction::FloatToInteger => lines.push_back(format!("{prefix}\tF2I")),
         Instruction::FloatToVector => lines.push_back(format!("{prefix}\tF2V")),
-        Instruction::PushConstU8 { c1 } => lines.push_back(format!("{prefix}\tPUSH_CONST_U8 {c1}")),
+        Instruction::PushConstU8 { c1 } => {
+          last_constant = *c1 as u32;
+          lines.push_back(format!("{prefix}\tPUSH_CONST_U8 {c1}"))
+        }
         Instruction::PushConstU8U8 { c1, c2 } => {
+          last_constant = *c2 as u32;
           lines.push_back(format!("{prefix}\tPUSH_CONST_U8_U8 {c1} {c2}"))
         }
         Instruction::PushConstU8U8U8 { c1, c2, c3 } => {
+          last_constant = *c3 as u32;
           lines.push_back(format!("{prefix}\tPUSH_CONST_U8_U8_U8 {c1} {c2} {c3}"))
         }
         Instruction::PushConstU32 { c1 } => {
+          last_constant = *c1;
           lines.push_back(format!("{prefix}\tPUSH_CONST_U32 {c1}"))
         }
         Instruction::PushConstFloat { c1 } => {
@@ -180,6 +190,7 @@ impl AssemblyFormatter {
           lines.push_back(format!("{prefix}\tIOFFSET_U8_STORE {offset}"))
         }
         Instruction::PushConstS16 { c1 } => {
+          last_constant = *c1 as u32;
           lines.push_back(format!("{prefix}\tPUSH_CONST_S16 {c1}"))
         }
         Instruction::AddS16 { value } => lines.push_back(format!("{prefix}\tIADD_S16 {value}")),
@@ -331,6 +342,7 @@ impl AssemblyFormatter {
           lines.push_back(format!("{prefix}\tGLOBAL_U24_STORE {global_index}"))
         }
         Instruction::PushConstU24 { c1 } => {
+          last_constant = *c1;
           lines.push_back(format!("{prefix}\tPUSH_CONST_U24 {c1}"))
         }
         Instruction::Switch { cases } => {
@@ -345,7 +357,18 @@ impl AssemblyFormatter {
             )
           }))
         }
-        Instruction::String => lines.push_back(format!("{prefix}\tSTRING")),
+        Instruction::String => {
+          let bytes = self
+            .string_table
+            .iter()
+            .skip(last_constant as usize)
+            .take_while(|char| **char != 0)
+            .copied()
+            .collect::<Vec<_>>();
+          let str = String::from_utf8(bytes).unwrap_or_else(|_| "<<ERROR STRING>>".to_owned());
+          last_constant = 0;
+          lines.push_back(format!("{prefix}\tSTRING ; \"{str}\""));
+        }
         Instruction::StringHash => lines.push_back(format!("{prefix}\tSTRING_HASH")),
         Instruction::TextLabelAssignString { buffer_size } => {
           lines.push_back(format!("{prefix}\tTEXT_LABEL_ASSIGN_STRING {buffer_size}"))

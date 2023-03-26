@@ -61,7 +61,7 @@ fn find_functions<'bytes, 'input: 'bytes>(
 }
 
 pub fn decompile(instructions: &[InstructionInfo]) {
-  let functions = find_functions(instructions);
+  let _functions = find_functions(instructions);
 }
 
 pub fn function_dot_string(

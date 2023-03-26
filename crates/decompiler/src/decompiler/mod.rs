@@ -13,20 +13,46 @@ fn find_functions<'bytes, 'input: 'bytes>(
   instructions: &'input [InstructionInfo]
 ) -> Vec<Function<'input, 'bytes>> {
   let mut result = vec![];
-  let mut it = instructions.iter().enumerate();
+  let mut it = instructions.iter().enumerate().peekable();
 
   while let Some((start, instr)) = it.next() {
     if let Instruction::Enter { arg_count, .. } = instr.instruction {
-      'leave_loop: while let Some((end, instr)) = it.next() {
-        if let Instruction::Leave { return_count, .. } = instr.instruction {
-          result.push(Function {
-            name:         result.len().to_string(),
-            parameters:   arg_count as u32,
-            return_count: return_count as u32,
-            instructions: &instructions[start..=end]
-          });
-          break 'leave_loop;
+      let mut last_leave: Option<(usize, u8)> = None;
+      loop {
+        let next = it.peek();
+
+        match next {
+          Some((
+            end,
+            InstructionInfo {
+              instruction: Instruction::Leave { return_count, .. },
+              ..
+            }
+          )) => {
+            last_leave = Some((*end, *return_count));
+            it.next();
+          }
+          Some((
+            _,
+            InstructionInfo {
+              instruction: Instruction::Enter { .. },
+              ..
+            }
+          ))
+          | None => break,
+          _ => {
+            it.next();
+          }
         }
+      }
+
+      if let Some((end, return_count)) = last_leave {
+        result.push(Function {
+          name:         format!("func_{}", result.len()),
+          parameters:   arg_count as u32,
+          return_count: return_count as u32,
+          instructions: &instructions[start..=end]
+        })
       }
     }
   }

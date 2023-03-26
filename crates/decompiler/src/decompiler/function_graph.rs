@@ -7,7 +7,7 @@ use crate::{
 
 use super::function::Function;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum EdgeDest {
   Success(usize),
   Fallback(usize),
@@ -88,7 +88,7 @@ impl FunctionGraph {
   pub fn to_dot_string(&self, function: &Function, formatter: AssemblyFormatter) -> String {
     let mut first = true;
     let mut diagram: LinkedList<String> = Default::default();
-    diagram.push_back(r#"digraph{node[fontname="Consolas",fontcolor=black]"#.to_owned());
+    diagram.push_back(r#"digraph{graph[splines=ortho,rankdir=TB,concentrate=true]node[fontname="Consolas",fontcolor=black]"#.to_owned());
     for (index, end) in &self.nodes {
       let pos = function.instructions[*index].pos;
       let assembly = formatter.format(&function.instructions[*index..=*end], false);
@@ -159,16 +159,16 @@ impl FunctionGraph {
   }
 
   fn add_edge(&mut self, origin: usize, destination: EdgeDest) {
-    self
-      .parent_to_child
-      .entry(origin)
-      .or_default()
-      .push(destination);
-    self
-      .child_to_parent
-      .entry(destination.dest())
-      .or_default()
-      .push(origin);
+    let edges = self.parent_to_child.entry(origin).or_default();
+
+    if !edges.contains(&destination) {
+      edges.push(destination);
+      self
+        .child_to_parent
+        .entry(destination.dest())
+        .or_default()
+        .push(origin);
+    }
   }
 }
 
@@ -184,8 +184,7 @@ fn get_destinations(instructions: &[InstructionInfo]) -> HashSet<usize> {
       | Instruction::IfLowerThanJumpZero { location }
       | Instruction::IfGreaterThanJumpZero { location }
       | Instruction::IfLowerOrEqualJumpZero { location }
-      | Instruction::IfGreaterOrEqualJumpZero { location }
-      | Instruction::FunctionCall { location } => {
+      | Instruction::IfGreaterOrEqualJumpZero { location } => {
         result.insert(*location as usize);
       }
       Instruction::Switch { cases } => {

@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
 
   let dot = function_dot_string(
     &disassembly,
-    19020,
+    19043,
     AssemblyFormatter::new(&disassembly, false, 0)
   );
 

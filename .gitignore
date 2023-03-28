@@ -11,3 +11,4 @@ Cargo.lock
 
 output.scasm
 output.dot
+input.ysc

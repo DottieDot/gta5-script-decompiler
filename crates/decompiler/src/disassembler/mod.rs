@@ -7,7 +7,7 @@ use self::opcodes::Opcode;
 
 mod instruction;
 mod instruction_info;
-pub(self) mod opcodes;
+pub mod opcodes;
 
 pub use instruction::*;
 pub use instruction_info::*;
@@ -24,6 +24,7 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
     let instruction = match Opcode::try_from(raw_opcode).map_err(|e| {
       DisassembleError::ReadInstructionError {
         input:  raw_opcode,
+        offset: start_pos,
         source: e
       }
     })? {
@@ -475,9 +476,10 @@ fn add_i16_to_usize(usize: usize, i16: i16) -> Option<usize> {
 
 #[derive(Debug, Error)]
 pub enum DisassembleError {
-  #[error("{} is not a recognized instruction", input)]
+  #[error("{} at {} is not a recognized instruction", input, offset)]
   ReadInstructionError {
     input:  u8,
+    offset: usize,
     #[source]
     source: <Opcode as TryFrom<u8>>::Error
   },

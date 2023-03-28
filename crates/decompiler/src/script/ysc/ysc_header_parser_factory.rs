@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use super::{header_parsers::PcYscHeaderParser, YscHeaderParser};
+use super::{header_parsers::PcYscHeaderParser, OpcodeVersion, YscHeaderParser};
 
 pub struct YscHeaderParserFactory;
 
@@ -11,8 +11,10 @@ impl YscHeaderParserFactory {
 
     let magic = u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
 
-    let parser = match (magic, magic & 0xFFFF) {
-      (0x52ACB3A8 | 0x9204B3A8 | 0x6B8CB3A8, _) | (_, 0xA588 | 0xB0B8) => PcYscHeaderParser,
+    let parser = match magic & 0xFFFF {
+      0xB0B8 => PcYscHeaderParser::new(OpcodeVersion::B2628), // GTA V b2628
+      0x2699 => PcYscHeaderParser::new(OpcodeVersion::B2699), // GTA V b2699
+      0xB3A8 => PcYscHeaderParser::new(OpcodeVersion::B2802), // GTA V b2802
       _ => return Err(UnknownMagicError { magic })
     };
 

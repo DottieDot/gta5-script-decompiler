@@ -1,7 +1,7 @@
 use binary_layout::define_layout;
 use binary_reader::{BinaryReader, Endian};
 
-use crate::script::{YscHeaderParser, YscScriptHeader};
+use crate::script::{OpcodeVersion, YscHeaderParser, YscScriptHeader};
 
 use super::read_pointer::ReadPointer;
 
@@ -40,7 +40,15 @@ define_layout!(pc_header, LittleEndian, {
   _pad0x7c: [u8; 4] // 0x7C
 });
 
-pub struct PcYscHeaderParser;
+pub struct PcYscHeaderParser {
+  version: OpcodeVersion
+}
+
+impl PcYscHeaderParser {
+  pub fn new(version: OpcodeVersion) -> Self {
+    Self { version }
+  }
+}
 
 impl YscHeaderParser for PcYscHeaderParser {
   fn parse(&self, bytes: &[u8]) -> anyhow::Result<YscScriptHeader> {
@@ -114,5 +122,9 @@ impl YscHeaderParser for PcYscHeaderParser {
         String::from_utf8(name)?
       }
     })
+  }
+
+  fn opcode_version(&self) -> OpcodeVersion {
+    self.version
   }
 }

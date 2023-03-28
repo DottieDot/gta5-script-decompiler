@@ -1,16 +1,19 @@
-use std::{cmp, fs, io, path::Path, string::FromUtf8Error};
+use std::{cmp, fs, io, path::Path};
 
 use thiserror::Error;
 
-use crate::script::{Script, ScriptInfo};
+use crate::{
+  disassembler::opcodes::Opcode,
+  script::{Script, ScriptInfo}
+};
 
-use super::{UnknownMagicError, YscHeaderParserFactory};
+use super::{OpcodeVersion, UnknownMagicError, YscHeaderParserFactory};
 
 pub fn parse_ysc(bytes: &[u8]) -> Result<Script, ParseYscError> {
   let header_parser = YscHeaderParserFactory::create(bytes)?;
   let header = header_parser.parse(bytes)?;
 
-  let code = flatten_table(
+  let mut code = flatten_table(
     bytes,
     header.code_size as usize,
     &header
@@ -20,6 +23,7 @@ pub fn parse_ysc(bytes: &[u8]) -> Result<Script, ParseYscError> {
       .collect::<Vec<_>>(),
     0x4000
   );
+  patch_opcodes(header_parser.opcode_version(), &mut code)?;
 
   let strings = flatten_table(
     bytes,
@@ -91,7 +95,10 @@ pub enum ParseYscError {
   FailedToParseHeader {
     #[from]
     source: anyhow::Error
-  }
+  },
+
+  #[error("Invalid opcode {opcode} at {position}")]
+  InvalidOpcode { opcode: u8, position: usize }
 }
 
 #[derive(Error, Debug)]
@@ -107,4 +114,28 @@ pub enum ParseYscFileError {
     path:   Option<String>,
     source: io::Error
   }
+}
+
+fn patch_opcodes(version: OpcodeVersion, bytes: &mut [u8]) -> Result<(), ParseYscError> {
+  let mut i = 0;
+  while i < bytes.len() {
+    let byte = &mut bytes[i];
+    if version <= OpcodeVersion::B2802 {
+      if *byte >= Opcode::StaticU24.into() {
+        *byte += 3; // StaticU24, StaticU24Load, StaticU24Store
+      }
+    }
+
+    let opcode = Opcode::try_from(*byte)
+      .map_err(|_| {
+        ParseYscError::InvalidOpcode {
+          opcode:   *byte,
+          position: i
+        }
+      })
+      .unwrap();
+    i += opcode.size(&bytes[i..]) as usize;
+  }
+
+  Ok(())
 }

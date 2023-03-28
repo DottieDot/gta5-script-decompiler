@@ -6,7 +6,7 @@ use gta5_script_decompiler::{
 };
 
 fn main() -> anyhow::Result<()> {
-  let script = parse_ysc_file(r"C:\Users\Tvang\Desktop\freemode_ysc\freemode.ysc.full")?;
+  let script = parse_ysc_file(r"./input.ysc")?;
   let disassembly = disassemble(&script.code)?;
 
   let formatter = AssemblyFormatter::new(&disassembly, true, 8, &script.strings);
@@ -17,7 +17,7 @@ fn main() -> anyhow::Result<()> {
 
   let dot = function_dot_string(
     &disassembly,
-    19735,
+    10,
     AssemblyFormatter::new(&disassembly, false, 0, &script.strings)
   );
 

@@ -7,6 +7,7 @@ use self::function::Function;
 
 mod function;
 mod function_graph;
+mod stack;
 mod stack_entry;
 
 fn find_functions<'bytes, 'input: 'bytes>(

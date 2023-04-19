@@ -1,18 +1,22 @@
-use std::collections::VecDeque;
+use std::collections::HashMap;
 
 use crate::{
   disassembler::{Instruction, InstructionInfo},
-  formatters::AssemblyFormatter
+  formatters::AssemblyFormatter,
+  script::Script
 };
 
 use super::{
+  decompiled::{DecompiledFunction, Statement, StatementInfo},
   function_graph::FunctionGraph,
   stack::{InvalidStackError, Stack},
-  stack_entry::{BinaryOperator, StackEntry, Type, UnaryOperator}
+  stack_entry::{BinaryOperator, Type, UnaryOperator}
 };
 
+#[derive(Clone, Debug)]
 pub struct Function<'input, 'bytes> {
   pub name:         String,
+  pub location:     usize,
   pub parameters:   u32,
   pub return_count: u32,
   pub instructions: &'input [InstructionInfo<'bytes>]
@@ -25,12 +29,22 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
     graph.to_dot_string(self, formatter)
   }
 
-  pub fn decompile(&self) -> Result<(), InvalidStackError> {
+  pub fn decompile(
+    &self,
+    script: &Script,
+    functions: &HashMap<usize, Function>
+  ) -> Result<DecompiledFunction<'input, 'bytes>, InvalidStackError> {
+    let mut statements: Vec<StatementInfo> = Default::default();
     let mut stack: Stack = Default::default();
 
-    for info in self.instructions {
+    for (index, info) in self.instructions.iter().enumerate() {
       match &info.instruction {
-        Instruction::Nop => {}
+        Instruction::Nop => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Nop
+          })
+        }
         Instruction::IntegerAdd => stack.push_binary_operator(Type::Int, BinaryOperator::Add)?,
         Instruction::IntegerSubtract => {
           stack.push_binary_operator(Type::Int, BinaryOperator::Subtract)?
@@ -132,23 +146,53 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
         Instruction::PushConstU32 { c1 } => stack.push_int(*c1 as i64),
         Instruction::PushConstFloat { c1 } => stack.push_float(*c1),
         Instruction::Dup => stack.push_dup()?,
-        Instruction::Drop => todo!(),
+        Instruction::Drop => {
+          stack.pop()?;
+        }
         Instruction::NativeCall {
           arg_count,
           return_count,
           native_index
-        } => todo!(), // TODO
-        Instruction::Enter {
-          arg_count,
-          frame_size,
-          name
-        } => todo!(), // TODO
-        Instruction::Leave {
-          parameter_count,
-          return_count
-        } => todo!(), // TODO
+        } => {
+          if *return_count == 0 {
+            statements.push(StatementInfo {
+              instructions: &self.instructions[index..=index],
+              statement:    Statement::NativeCall {
+                args:        {
+                  let mut args = stack.pop_n(*arg_count as usize)?;
+                  args.reverse();
+                  args
+                },
+                native_hash: script.natives[*native_index as usize]
+              }
+            })
+          } else {
+            stack.push_native_call(
+              *arg_count as usize,
+              *return_count as usize,
+              script.natives[*native_index as usize]
+            )?
+          }
+        }
+        Instruction::Enter { .. } => { /* SKIP */ }
+        Instruction::Leave { return_count, .. } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Return {
+              values: stack.pop_n(*return_count as usize)?
+            }
+          })
+        }
         Instruction::Load => stack.push_deref()?,
-        Instruction::Store => todo!(),
+        Instruction::Store => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              source:      stack.pop()?,
+              destination: stack.pop()?
+            }
+          })
+        }
         Instruction::StoreRev => todo!(),
         Instruction::LoadN => stack.push_load_n()?,
         Instruction::StoreN => todo!(),
@@ -228,7 +272,29 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
         Instruction::IfGreaterOrEqualJumpZero { location } => todo!(),
         Instruction::IfLowerThanJumpZero { location } => todo!(),
         Instruction::IfLowerOrEqualJumpZero { location } => todo!(),
-        Instruction::FunctionCall { location } => todo!(),
+        Instruction::FunctionCall { location } => {
+          let location = *location as usize;
+          let target = functions.get(&location).expect("TODO HANDLE THIS");
+          if target.return_count > 0 {
+            stack.push_function_call(
+              target.parameters as usize,
+              target.return_count as usize,
+              target.location
+            )?
+          } else {
+            statements.push(StatementInfo {
+              instructions: &self.instructions[index..=index],
+              statement:    Statement::FunctionCall {
+                args:             {
+                  let mut args = stack.pop_n(target.parameters as usize)?;
+                  args.reverse();
+                  args
+                },
+                function_address: target.location
+              }
+            })
+          }
+        }
         Instruction::StaticU24 { static_index } => stack.push_static(*static_index as usize),
         Instruction::StaticU24Load { static_index } => {
           stack.push_static(*static_index as usize);
@@ -251,7 +317,14 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
         Instruction::TextLabelAppendInt { buffer_size } => todo!(),
         Instruction::TextLabelCopy => todo!(),
         Instruction::Catch => stack.push_catch(),
-        Instruction::Throw => todo!(),
+        Instruction::Throw => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Throw {
+              value: stack.pop()?
+            }
+          })
+        }
         Instruction::CallIndirect => todo!(),
         Instruction::PushConstM1 => stack.push_int(-1),
         Instruction::PushConst0 => stack.push_int(0),
@@ -275,6 +348,10 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
       };
     }
 
-    Ok(())
+    Ok(DecompiledFunction {
+      name: self.name.clone(),
+      params: self.parameters as usize,
+      statements
+    })
   }
 }

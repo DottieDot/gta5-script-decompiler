@@ -14,5 +14,6 @@ pub struct ScriptInfo {
 pub struct Script {
   pub header:  ScriptInfo,
   pub code:    Vec<u8>,
-  pub strings: Vec<u8>
+  pub strings: Vec<u8>,
+  pub natives: Vec<u64>
 }

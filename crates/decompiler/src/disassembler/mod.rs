@@ -98,11 +98,11 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
       Opcode::NativeCall => {
         let val = reader.read_u8()?;
         let return_count = val & 0b00000011;
-        let arg_count = val & 0b11111100;
+        let arg_count = (val & 0b11111100) >> 2;
         Instruction::NativeCall {
           arg_count,
           return_count,
-          native_index: reader.read_u16()?
+          native_index: ((reader.read_u8()? as u16) << 8) + reader.read_u8()? as u16
         }
       }
       Opcode::Enter => {

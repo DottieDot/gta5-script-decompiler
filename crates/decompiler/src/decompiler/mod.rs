@@ -1,10 +1,14 @@
+use std::collections::HashMap;
+
 use crate::{
   disassembler::{Instruction, InstructionInfo},
-  formatters::AssemblyFormatter
+  formatters::AssemblyFormatter,
+  script::Script
 };
 
-use self::function::Function;
+use self::{decompiled::DecompiledFunction, function::Function, stack::InvalidStackError};
 
+mod decompiled;
 mod function;
 mod function_graph;
 mod stack;
@@ -50,6 +54,7 @@ fn find_functions<'bytes, 'input: 'bytes>(
       if let Some((end, return_count)) = last_leave {
         result.push(Function {
           name:         format!("func_{}", result.len()),
+          location:     instructions[start].pos,
           parameters:   arg_count as u32,
           return_count: return_count as u32,
           instructions: &instructions[start..=end]
@@ -72,4 +77,18 @@ pub fn function_dot_string(
 ) -> String {
   let functions = find_functions(instructions);
   functions[function].dot_string(formatter)
+}
+
+pub fn decompile_function<'input: 'script, 'script>(
+  instructions: &'input [InstructionInfo<'script>],
+  script: &'script Script,
+  function: usize
+) -> Result<DecompiledFunction<'input, 'script>, InvalidStackError> {
+  let functions = find_functions(instructions);
+  let function_map = functions
+    .clone()
+    .into_iter()
+    .map(|f| (f.location, f))
+    .collect::<HashMap<_, _>>();
+  functions[function].decompile(script, &function_map)
 }

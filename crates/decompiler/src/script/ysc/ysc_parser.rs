@@ -1,5 +1,6 @@
 use std::{cmp, fs, io, path::Path};
 
+use binary_reader::BinaryReader;
 use thiserror::Error;
 
 use crate::{
@@ -36,6 +37,24 @@ pub fn parse_ysc(bytes: &[u8]) -> Result<Script, ParseYscError> {
     0x4000
   );
 
+  let mut reader = BinaryReader::from_u8(bytes);
+  reader.set_endian(binary_reader::Endian::Little);
+  reader.adv(header.natives_offset as usize);
+  let natives = (0..header.natives_count)
+    .map(|i| {
+      reader
+        .read_u64()
+        .map(|hash| rotl_native_hash(hash, header.code_size + i))
+    })
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(|e| {
+      ParseYscError::InvalidNativeInfo {
+        source: e,
+        offset: header.natives_offset,
+        count:  header.natives_count
+      }
+    })?;
+
   Ok(Script {
     header: ScriptInfo {
       name:            header.script_name,
@@ -44,7 +63,8 @@ pub fn parse_ysc(bytes: &[u8]) -> Result<Script, ParseYscError> {
       parameter_count: header.parameter_count
     },
     code,
-    strings
+    strings,
+    natives
   })
 }
 
@@ -83,6 +103,11 @@ fn flatten_table(
     .collect::<Vec<_>>()
 }
 
+fn rotl_native_hash(hash: u64, mut rotate: u32) -> u64 {
+  rotate %= 64;
+  hash << rotate | hash >> (64 - rotate)
+}
+
 #[derive(Error, Debug)]
 pub enum ParseYscError {
   #[error("{source}")]
@@ -98,7 +123,14 @@ pub enum ParseYscError {
   },
 
   #[error("Invalid opcode {opcode} at {position}")]
-  InvalidOpcode { opcode: u8, position: usize }
+  InvalidOpcode { opcode: u8, position: usize },
+
+  #[error("Failed to read {count} natives at {offset}: {source}")]
+  InvalidNativeInfo {
+    source: io::Error,
+    offset: u32,
+    count:  u32
+  }
 }
 
 #[derive(Error, Debug)]

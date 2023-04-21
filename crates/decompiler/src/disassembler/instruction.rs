@@ -502,7 +502,7 @@ pub enum Instruction {
     frame_size: u16,
 
     /// The name of the function. This is removed from production builds.
-    name: Option<String>
+    name: String
   },
 
   Leave {

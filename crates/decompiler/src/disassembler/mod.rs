@@ -18,6 +18,7 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
   let mut reader = BinaryReader::from_u8(code);
   reader.set_endian(Endian::Little);
 
+  let mut n_func = 0;
   while reader.pos != reader.length {
     let start_pos = reader.pos;
     let raw_opcode = reader.read_u8()?;
@@ -111,17 +112,16 @@ pub fn disassemble(code: &[u8]) -> Result<Vec<InstructionInfo>, DisassembleError
           frame_size: reader.read_u16()?,
           name:       {
             let length = reader.read_u8()?;
+            n_func += 1;
             if length == 0 {
-              None
+              format!("func_{}", n_func - 1)
             } else {
-              Some(
-                String::from_utf8(reader.read_bytes(length as usize)?.to_vec()).map_err(|e| {
-                  DisassembleError::InvalidFunctionNameError {
-                    pos:    reader.pos,
-                    source: e
-                  }
-                })?
-              )
+              String::from_utf8(reader.read_bytes(length as usize)?.to_vec()).map_err(|e| {
+                DisassembleError::InvalidFunctionNameError {
+                  pos:    reader.pos,
+                  source: e
+                }
+              })?
             }
           }
         }

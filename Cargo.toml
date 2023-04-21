@@ -1,2 +1,5 @@
 [workspace]
 members = ["./crates/decompiler", "./crates/cli"]
+
+[profile.release]
+debug = true

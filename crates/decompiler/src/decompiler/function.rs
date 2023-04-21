@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
   disassembler::{Instruction, InstructionInfo},
@@ -13,8 +13,7 @@ use super::{
   stack_entry::{BinaryOperator, Type, UnaryOperator}
 };
 
-#[derive(Clone, Debug)]
-pub struct Function<'input, 'bytes> {
+pub struct FunctionInfo<'input, 'bytes> {
   pub name:         String,
   pub location:     usize,
   pub parameters:   u32,
@@ -22,11 +21,32 @@ pub struct Function<'input, 'bytes> {
   pub instructions: &'input [InstructionInfo<'bytes>]
 }
 
+#[derive(Clone, Debug)]
+pub struct Function<'input, 'bytes> {
+  pub name:         String,
+  pub location:     usize,
+  pub parameters:   u32,
+  pub return_count: u32,
+  pub instructions: &'input [InstructionInfo<'bytes>],
+  pub graph:        FunctionGraph<'input, 'bytes>
+}
+
 impl<'input, 'bytes> Function<'input, 'bytes> {
+  pub fn new(info: FunctionInfo<'input, 'bytes>) -> Self {
+    let graph = FunctionGraph::generate(&info);
+    Self {
+      name:         info.name,
+      location:     info.location,
+      parameters:   info.parameters,
+      return_count: info.return_count,
+      instructions: info.instructions,
+      graph:        graph
+    }
+  }
+
   // Temporary
   pub fn dot_string(&self, formatter: AssemblyFormatter) -> String {
-    let graph = FunctionGraph::generate(self);
-    graph.to_dot_string(self, formatter)
+    self.graph.to_dot_string(formatter)
   }
 
   pub fn decompile(
@@ -34,8 +54,31 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
     script: &Script,
     functions: &HashMap<usize, Function>
   ) -> Result<DecompiledFunction<'input, 'bytes>, InvalidStackError> {
+    let statements = self.decompile_node(
+      script,
+      functions,
+      self.graph.entrypoint(),
+      Default::default(),
+      &mut Default::default()
+    )?;
+
+    Ok(DecompiledFunction {
+      name: self.name.clone(),
+      params: self.parameters as usize,
+      statements
+    })
+  }
+
+  fn decompile_node(
+    &self,
+    script: &Script,
+    functions: &HashMap<usize, Function>,
+    node_id: usize,
+    mut stack: Stack,
+    _visited: &mut HashSet<usize>
+  ) -> Result<Vec<StatementInfo<'input, 'bytes>>, InvalidStackError> {
     let mut statements: Vec<StatementInfo> = Default::default();
-    let mut stack: Stack = Default::default();
+    let node = self.graph.node(node_id).expect("invalid function graph");
 
     for (index, info) in self.instructions.iter().enumerate() {
       match &info.instruction {
@@ -201,19 +244,52 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
           stack.push_array_item(*item_size as usize)?;
           stack.push_deref()?
         }
-        Instruction::ArrayU8Store { item_size } => todo!(),
+        Instruction::ArrayU8Store { item_size } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_array_item(*item_size as usize)?;
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::LocalU8 { offset } => stack.push_local(*offset as usize),
         Instruction::LocalU8Load { offset } => {
           stack.push_local(*offset as usize);
           stack.push_deref()?
         }
-        Instruction::LocalU8Store { offset } => todo!(),
+        Instruction::LocalU8Store { offset } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_local(*offset as usize);
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::StaticU8 { static_index } => stack.push_static(*static_index as usize),
         Instruction::StaticU8Load { static_index } => {
           stack.push_static(*static_index as usize);
           stack.push_deref()?
         }
-        Instruction::StaticU8Store { static_index } => todo!(),
+        Instruction::StaticU8Store { static_index } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_static(*static_index as usize);
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::AddU8 { value } => {
           stack.push_const_int_binary_operator(BinaryOperator::Add, *value as i64)?
         }
@@ -226,7 +302,18 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
           stack.push_const_offset(*offset as i64)?;
           stack.push_deref()?
         }
-        Instruction::OffsetU8Store { offset } => todo!(),
+        Instruction::OffsetU8Store { offset } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_const_offset(*offset as i64)?;
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::PushConstS16 { c1 } => stack.push_int(*c1 as i64),
         Instruction::AddS16 { value } => {
           stack.push_const_int_binary_operator(BinaryOperator::Add, *value as i64)?
@@ -239,31 +326,86 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
           stack.push_const_offset(*offset as i64)?;
           stack.push_deref()?
         }
-        Instruction::OffsetS16Store { offset } => todo!(),
+        Instruction::OffsetS16Store { offset } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_const_offset(*offset as i64)?;
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::ArrayU16 { item_size } => stack.push_array_item(*item_size as usize)?,
         Instruction::ArrayU16Load { item_size } => {
           stack.push_array_item(*item_size as usize)?;
           stack.push_deref()?
         }
-        Instruction::ArrayU16Store { item_size } => todo!(),
+        Instruction::ArrayU16Store { item_size } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_array_item(*item_size as usize)?;
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::LocalU16 { local_index } => stack.push_local(*local_index as usize),
         Instruction::LocalU16Load { local_index } => {
           stack.push_local(*local_index as usize);
           stack.push_deref()?
         }
-        Instruction::LocalU16Store { local_index } => todo!(),
+        Instruction::LocalU16Store { local_index } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_local(*local_index as usize);
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::StaticU16 { static_index } => stack.push_static(*static_index as usize),
         Instruction::StaticU16Load { static_index } => {
           stack.push_static(*static_index as usize);
           stack.push_deref()?
         }
-        Instruction::StaticU16Store { static_index } => todo!(),
+        Instruction::StaticU16Store { static_index } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_static(*static_index as usize);
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::GlobalU16 { global_index } => stack.push_global(*global_index as usize),
         Instruction::GlobalU16Load { global_index } => {
           stack.push_global(*global_index as usize);
           stack.push_deref()?
         }
-        Instruction::GlobalU16Store { global_index } => todo!(),
+        Instruction::GlobalU16Store { global_index } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_global(*global_index as usize);
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::Jump { location } => todo!(),
         Instruction::JumpZero { location } => todo!(),
         Instruction::IfEqualJumpZero { location } => todo!(),
@@ -300,13 +442,35 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
           stack.push_static(*static_index as usize);
           stack.push_deref()?
         }
-        Instruction::StaticU24Store { static_index } => todo!(),
+        Instruction::StaticU24Store { static_index } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_static(*static_index as usize);
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::GlobalU24 { global_index } => stack.push_global(*global_index as usize),
         Instruction::GlobalU24Load { global_index } => {
           stack.push_global(*global_index as usize);
           stack.push_deref()?
         }
-        Instruction::GlobalU24Store { global_index } => todo!(),
+        Instruction::GlobalU24Store { global_index } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              destination: {
+                stack.push_global(*global_index as usize);
+                stack.pop()?
+              },
+              source:      stack.pop()?
+            }
+          })
+        }
         Instruction::PushConstU24 { c1 } => stack.push_int(*c1 as i64),
         Instruction::Switch { cases } => todo!(),
         Instruction::String => stack.push_string()?,
@@ -348,10 +512,6 @@ impl<'input, 'bytes> Function<'input, 'bytes> {
       };
     }
 
-    Ok(DecompiledFunction {
-      name: self.name.clone(),
-      params: self.parameters as usize,
-      statements
-    })
+    todo!()
   }
 }

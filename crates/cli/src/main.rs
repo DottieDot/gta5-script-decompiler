@@ -11,19 +11,19 @@ fn main() -> anyhow::Result<()> {
   let script = parse_ysc_file(r"./input.ysc")?;
   let disassembly = disassemble(&script.code)?;
 
-  let formatter = AssemblyFormatter::new(&disassembly, true, 8, &script.strings);
+  let formatter = AssemblyFormatter::new(&disassembly, false, 0, &script.strings);
 
   let output = formatter.format(&disassembly, true);
 
   fs::write("output.scasm", output)?;
 
-  let dot = function_dot_string(
-    &disassembly,
-    10,
-    AssemblyFormatter::new(&disassembly, false, 0, &script.strings)
-  );
+  // let dot = function_dot_string(
+  //   &disassembly,
+  //   10,
+  //   AssemblyFormatter::new(&disassembly, false, 0, &script.strings)
+  // );
 
-  fs::write("output.dot", dot)?;
+  // fs::write("output.dot", dot)?;
 
   /*
   18711:
@@ -51,9 +51,9 @@ fn main() -> anyhow::Result<()> {
     }
   */
 
-  let decompiled = decompile_function(&disassembly, &script, 485)?;
+  // let decompiled = decompile_function(&disassembly, &script, 485)?;
 
-  fs::write("output.rs", format!("{decompiled:#?}"))?;
+  // fs::write("output.rs", format!("{decompiled:#?}"))?;
 
   Ok(())
 }

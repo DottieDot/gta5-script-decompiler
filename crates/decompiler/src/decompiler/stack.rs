@@ -4,7 +4,7 @@ use thiserror::Error;
 
 use super::stack_entry::{BinaryOperator, StackEntry, Type, UnaryOperator};
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Stack {
   stack: VecDeque<StackEntry>
 }

@@ -6,7 +6,11 @@ use crate::{
   script::Script
 };
 
-use self::{decompiled::DecompiledFunction, function::Function, stack::InvalidStackError};
+use self::{
+  decompiled::DecompiledFunction,
+  function::{Function, FunctionInfo},
+  stack::InvalidStackError
+};
 
 mod decompiled;
 mod function;
@@ -52,13 +56,13 @@ fn find_functions<'bytes, 'input: 'bytes>(
       }
 
       if let Some((end, return_count)) = last_leave {
-        result.push(Function {
+        result.push(Function::new(FunctionInfo {
           name:         format!("func_{}", result.len()),
           location:     instructions[start].pos,
           parameters:   arg_count as u32,
           return_count: return_count as u32,
           instructions: &instructions[start..=end]
-        })
+        }))
       }
     }
   }

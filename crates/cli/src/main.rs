@@ -17,13 +17,13 @@ fn main() -> anyhow::Result<()> {
 
   fs::write("output.scasm", output)?;
 
-  // let dot = function_dot_string(
-  //   &disassembly,
-  //   10,
-  //   AssemblyFormatter::new(&disassembly, false, 0, &script.strings)
-  // );
+  let dot = function_dot_string(
+    &disassembly,
+    10,
+    AssemblyFormatter::new(&disassembly, false, 0, &script.strings)
+  );
 
-  // fs::write("output.dot", dot)?;
+  fs::write("output.dot", dot)?;
 
   /*
   18711:

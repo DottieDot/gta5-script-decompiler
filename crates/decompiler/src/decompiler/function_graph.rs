@@ -145,13 +145,12 @@ impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
         .any(|_| true);
       let assembly = formatter.format(node.instructions, false);
       diagram.push_back(format!(
-        "node_{node}[label=\"{assembly}\\l\",shape=rectangle,color={color}]",
+        "node_{node}[margin=0.0,label=<<table border=\"0\"><tr><td bgcolor=\"#AAAAAA\">Node {node}</td></tr><tr><td align=\"text\">{assembly}<br align=\"left\" /></td></tr></table>>,shape=rectangle,color={color}]",
         node = index.index(),
         assembly = assembly
           .trim_start_matches('\n')
-          .replace('\n', "\\l")
-          .replace('\t', "    ")
-          .replace('"', "\\\""),
+          .replace('\n', "<br align=\"left\" />")
+          .replace('\t', "    "),
         color = {
           if first {
             first = false;
@@ -165,7 +164,7 @@ impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
       ));
     }
 
-    for (i, edge) in self.graph.edge_references().enumerate() {
+    for edge in self.graph.edge_references() {
       diagram.push_back(format!(
         "node_{origin}->node_{dest}[color={color}]",
         origin = edge.source().index(),

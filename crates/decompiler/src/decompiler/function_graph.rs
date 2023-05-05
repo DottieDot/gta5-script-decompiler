@@ -1,10 +1,15 @@
-use std::collections::{HashMap, HashSet, LinkedList};
+use std::{
+  collections::{HashMap, HashSet, LinkedList},
+  hash::Hash
+};
 
 use petgraph::{
+  algo::dominators::{simple_fast, Dominators},
   graph::NodeIndex,
   prelude::DiGraph,
   visit::{
-    EdgeCount, EdgeIndexable, EdgeRef, IntoEdgesDirected, IntoNodeReferences, NodeIndexable
+    EdgeCount, EdgeIndexable, EdgeRef, FilterNode, GraphBase, IntoEdgesDirected,
+    IntoNodeIdentifiers, IntoNodeReferences, NodeIndexable
   },
   Direction
 };
@@ -16,6 +21,43 @@ use crate::{
 
 use super::function::FunctionInfo;
 
+#[derive(Debug)]
+pub enum ControlFlow {
+  If {
+    node: NodeIndex,
+    then: Box<ControlFlow>
+  },
+  IfAfter {
+    node:  NodeIndex,
+    then:  Box<ControlFlow>,
+    after: Box<ControlFlow>
+  },
+  IfElse {
+    node: NodeIndex,
+    then: Box<ControlFlow>,
+    els:  Box<ControlFlow>
+  },
+  IfElseAfter {
+    node:  NodeIndex,
+    then:  Box<ControlFlow>,
+    els:   Box<ControlFlow>,
+    after: Box<ControlFlow>
+  },
+  Leaf {
+    node: NodeIndex
+  } // Loop {
+    //   body: Box<ControlFlow>
+    // },
+    // WhileLoop {
+    //   body: Box<ControlFlow>,
+    //   els:  Box<ControlFlow>
+    // },
+    // DoWhile {
+    //   body: Box<ControlFlow>,
+    //   els:  Box<ControlFlow>
+    // }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub enum EdgeType {
   Jump,
@@ -26,18 +68,20 @@ pub enum EdgeType {
 }
 
 #[derive(Debug, Clone)]
-pub struct TmpFunctionGraphNode<'input, 'bytes> {
+pub struct FunctionGraphNode<'input, 'bytes> {
   instructions: &'input [InstructionInfo<'bytes>]
 }
 
 #[derive(Debug, Clone)]
-pub struct TmpFunctionGraph<'input, 'bytes> {
-  graph: DiGraph<TmpFunctionGraphNode<'input, 'bytes>, EdgeType>
+pub struct FunctionGraph<'input, 'bytes> {
+  graph:      DiGraph<FunctionGraphNode<'input, 'bytes>, EdgeType>,
+  dominators: Dominators<NodeIndex>,
+  frontiers:  HashMap<NodeIndex, HashSet<NodeIndex>>
 }
 
-impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
+impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
   pub fn generate(function: &FunctionInfo<'input, 'bytes>) -> Self {
-    let mut graph: DiGraph<TmpFunctionGraphNode<'input, 'bytes>, EdgeType> = Default::default();
+    let mut graph: DiGraph<FunctionGraphNode<'input, 'bytes>, EdgeType> = Default::default();
     let destinations = get_destinations(function.instructions);
     let mut node_indices: HashMap<usize, NodeIndex> = Default::default();
 
@@ -60,7 +104,7 @@ impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
         | Instruction::IfLowerOrEqualJumpZero { .. }
         | Instruction::IfGreaterOrEqualJumpZero { .. }
         | Instruction::Switch { .. } => {
-          let index = graph.add_node(TmpFunctionGraphNode {
+          let index = graph.add_node(FunctionGraphNode {
             instructions: &function.instructions[cindex..=index]
           });
           node_indices.insert(cnode, index);
@@ -68,7 +112,7 @@ impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
           current_node = None;
         }
         _ if destinations.contains(&next) => {
-          let index = graph.add_node(TmpFunctionGraphNode {
+          let index = graph.add_node(FunctionGraphNode {
             instructions: &function.instructions[cindex..=index]
           });
           node_indices.insert(cnode, index);
@@ -80,7 +124,7 @@ impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
     }
 
     if let Some(cindex) = current_index {
-      let index = graph.add_node(TmpFunctionGraphNode {
+      let index = graph.add_node(FunctionGraphNode {
         instructions: &function.instructions[cindex..]
       });
       node_indices.insert(function.instructions[cindex].pos, index);
@@ -108,7 +152,7 @@ impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
           }
           Instruction::Jump { location } => {
             if let Some(to) = node_indices.get(&(*location as usize)) {
-              graph.add_edge(node_index, *to, EdgeType::ConditionalJump);
+              graph.add_edge(node_index, *to, EdgeType::Jump);
             }
           }
           Instruction::Switch { cases } => {
@@ -131,7 +175,14 @@ impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
       }
     }
 
-    Self { graph }
+    let dominators: Dominators<NodeIndex> = simple_fast(&graph, 0.into());
+    let frontiers = domination_frontiers(&graph, &dominators);
+
+    Self {
+      graph,
+      dominators,
+      frontiers
+    }
   }
 
   pub fn to_dot_string(&self, formatter: AssemblyFormatter) -> String {
@@ -183,6 +234,70 @@ impl<'input, 'bytes> TmpFunctionGraph<'input, 'bytes> {
 
     diagram.into_iter().collect::<Vec<_>>().join("")
   }
+
+  pub fn reconstruct_control_flow(&self) -> ControlFlow {
+    self.node_control_flow(self.dominators.root())
+  }
+
+  fn node_control_flow(&self, node: NodeIndex) -> ControlFlow {
+    let edges = self
+      .graph
+      .edges_directed(node, Direction::Outgoing)
+      .filter(|edge| !self.frontiers[&node].contains(&edge.target()))
+      .map(|edge| (edge.target(), edge.weight()))
+      .collect::<Vec<_>>();
+
+    match &edges[..] {
+      [(a, EdgeType::ConditionalJump), (b, EdgeType::ConditionalFlow)]
+      | [(a, EdgeType::ConditionalFlow), (b, EdgeType::ConditionalJump)] => {
+        if self.frontiers[a].contains(b) {
+          ControlFlow::IfAfter {
+            node,
+            then: Box::new(self.node_control_flow(*a)),
+            after: Box::new(self.node_control_flow(*b))
+          }
+        } else if self.frontiers[b].contains(a) {
+          ControlFlow::IfAfter {
+            node,
+            then: Box::new(self.node_control_flow(*b)),
+            after: Box::new(self.node_control_flow(*a))
+          }
+        } else {
+          let intersect = self.frontiers[a]
+            .intersection(&self.frontiers[b])
+            .copied()
+            .collect::<Vec<_>>();
+
+          match intersect[..] {
+            [after] if !self.frontiers[a].contains(&after) => {
+              ControlFlow::IfElseAfter {
+                node,
+                then: Box::new(self.node_control_flow(*a)),
+                els: Box::new(self.node_control_flow(*b)),
+                after: Box::new(self.node_control_flow(after))
+              }
+            }
+            [] | [_] => {
+              ControlFlow::IfElse {
+                node,
+                then: Box::new(self.node_control_flow(*a)),
+                els: Box::new(self.node_control_flow(*b))
+              }
+            }
+            _ => todo!()
+          }
+        }
+      }
+      [(then, EdgeType::ConditionalFlow) | (then, EdgeType::ConditionalJump)] => {
+        ControlFlow::If {
+          node,
+          then: Box::new(self.node_control_flow(*then))
+        }
+      }
+      [] => ControlFlow::Leaf { node },
+      _ => todo!()
+    }
+  }
 }
 
 fn get_destinations(instructions: &[InstructionInfo]) -> HashSet<usize> {
@@ -210,4 +325,45 @@ fn get_destinations(instructions: &[InstructionInfo]) -> HashSet<usize> {
   }
 
   result
+}
+
+fn domination_frontiers<N, E>(
+  graph: &DiGraph<N, E>,
+  dominators: &Dominators<<DiGraph<N, E> as GraphBase>::NodeId>
+) -> HashMap<<DiGraph<N, E> as GraphBase>::NodeId, HashSet<<DiGraph<N, E> as GraphBase>::NodeId>> {
+  let mut frontiers = HashMap::from_iter(graph.node_identifiers().map(|v| (v, HashSet::default())));
+
+  for node in graph.node_identifiers() {
+    let (predecessors, predecessors_len) = {
+      let ret = graph.neighbors_directed(node, Direction::Incoming);
+      let count = ret.clone().count();
+      (ret, count)
+    };
+
+    if predecessors_len >= 2 {
+      for p in predecessors {
+        let mut runner = p;
+
+        match dominators.immediate_dominator(node) {
+          Some(dominator) => {
+            while runner != dominator {
+              frontiers
+                .entry(runner)
+                .or_insert(HashSet::default())
+                .insert(node);
+
+              if let Some(dom) = dominators.immediate_dominator(runner) {
+                runner = dom;
+              } else {
+                break;
+              }
+            }
+          }
+          None => ()
+        }
+      }
+    }
+  }
+
+  frontiers
 }

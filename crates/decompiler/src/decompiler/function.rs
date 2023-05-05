@@ -4,7 +4,7 @@ use crate::{disassembler::InstructionInfo, formatters::AssemblyFormatter, script
 
 use super::{
   decompiled::{DecompiledFunction, StatementInfo},
-  function_graph::TmpFunctionGraph,
+  function_graph::FunctionGraph,
   stack::{InvalidStackError, Stack}
 };
 
@@ -23,12 +23,12 @@ pub struct Function<'input, 'bytes> {
   pub parameters:   u32,
   pub return_count: u32,
   pub instructions: &'input [InstructionInfo<'bytes>],
-  pub graph:        TmpFunctionGraph<'input, 'bytes>
+  pub graph:        FunctionGraph<'input, 'bytes>
 }
 
 impl<'input, 'bytes> Function<'input, 'bytes> {
   pub fn new(info: FunctionInfo<'input, 'bytes>) -> Self {
-    let graph = TmpFunctionGraph::generate(&info);
+    let graph = FunctionGraph::generate(&info);
     Self {
       name:         info.name,
       location:     info.location,

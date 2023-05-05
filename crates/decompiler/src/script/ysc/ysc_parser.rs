@@ -105,7 +105,8 @@ fn flatten_table(
 
 fn rotl_native_hash(hash: u64, mut rotate: u32) -> u64 {
   rotate %= 64;
-  hash << rotate | hash >> (64 - rotate)
+  hash.wrapping_shl(rotate) | hash.wrapping_shr(64 - rotate)
+  // hash << rotate | hash >> (64 - rotate)
 }
 
 #[derive(Error, Debug)]

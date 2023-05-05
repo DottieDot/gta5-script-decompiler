@@ -74,6 +74,14 @@ pub fn decompile(instructions: &[InstructionInfo]) {
   let _functions = find_functions(instructions);
 }
 
+pub fn function<'i: 'b, 'b>(
+  instructions: &'i [InstructionInfo<'b>],
+  function: usize
+) -> Function<'i, 'b> {
+  let mut functions = find_functions(instructions);
+  functions.swap_remove(function)
+}
+
 pub fn function_dot_string(
   instructions: &[InstructionInfo],
   function: usize,

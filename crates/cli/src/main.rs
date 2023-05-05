@@ -1,7 +1,7 @@
 use std::fs;
 
 use gta5_script_decompiler::{
-  decompiler::{decompile_function, function_dot_string},
+  decompiler::{decompile_function, function, function_dot_string},
   disassembler::disassemble,
   formatters::AssemblyFormatter,
   script::parse_ysc_file
@@ -11,19 +11,25 @@ fn main() -> anyhow::Result<()> {
   let script = parse_ysc_file(r"./input.ysc")?;
   let disassembly = disassemble(&script.code)?;
 
-  let formatter = AssemblyFormatter::new(&disassembly, false, 0, &script.strings);
+  //  let formatter = AssemblyFormatter::new(&disassembly, false, 0, &script.strings);
 
-  let output = formatter.format(&disassembly, true);
+  // let output = formatter.format(&disassembly, true);
 
-  fs::write("output.scasm", output)?;
+  // fs::write("output.scasm", output)?;
 
-  let dot = function_dot_string(
+  // 2229
+  let func = function(&disassembly, 2243);
+  let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
-    10,
-    AssemblyFormatter::new(&disassembly, false, 0, &script.strings)
-  );
+    false,
+    0,
+    &script.strings
+  ));
 
   fs::write("output.dot", dot)?;
+
+  let flow = func.graph.reconstruct_control_flow();
+  fs::write("flow.rs", format!("{flow:#?}"))?;
 
   /*
   18711:

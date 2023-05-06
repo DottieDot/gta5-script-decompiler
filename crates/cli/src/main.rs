@@ -17,8 +17,16 @@ fn main() -> anyhow::Result<()> {
 
   // fs::write("output.scasm", output)?;
 
-  // 2229
-  let func = function(&disassembly, 2243);
+  // *WORKS:
+  // - 2243
+  // - 2262 (&&)
+  // - 2263 (&& else if)
+  // - 2283 (|| else if)
+  // - 1191 (&& and ||)
+  // - 1271 (lots of && and ||)
+  // TODO:
+  // - 2229 (loop)
+  let func = function(&disassembly, 1271);
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,

@@ -45,6 +45,11 @@ pub enum ControlFlow {
   },
   Leaf {
     node: NodeIndex
+  },
+  AndOr {
+    node:  NodeIndex,
+    with:  Box<ControlFlow>,
+    after: Box<ControlFlow>
   } // Loop {
     //   body: Box<ControlFlow>
     // },
@@ -250,7 +255,19 @@ impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
     match &edges[..] {
       [(a, EdgeType::ConditionalJump), (b, EdgeType::ConditionalFlow)]
       | [(a, EdgeType::ConditionalFlow), (b, EdgeType::ConditionalJump)] => {
-        if self.frontiers[a].contains(b) {
+        if self.is_and_or_node(*a) && self.frontiers[a].contains(b) {
+          ControlFlow::AndOr {
+            node,
+            with: Box::new(self.node_control_flow(*a)),
+            after: Box::new(self.node_control_flow(*b))
+          }
+        } else if self.is_and_or_node(*b) && self.frontiers[b].contains(a) {
+          ControlFlow::AndOr {
+            node,
+            with: Box::new(self.node_control_flow(*b)),
+            after: Box::new(self.node_control_flow(*a))
+          }
+        } else if self.frontiers[a].contains(b) {
           ControlFlow::IfAfter {
             node,
             then: Box::new(self.node_control_flow(*a)),
@@ -296,6 +313,48 @@ impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
       }
       [] => ControlFlow::Leaf { node },
       _ => todo!()
+    }
+  }
+
+  fn is_and_or_node(&self, node: NodeIndex) -> bool {
+    let Some(last) = self.last_singular_dominated_node(node) else {
+      return false;
+    };
+
+    matches!(
+      self.graph.node_weight(last).unwrap().instructions.last(),
+      Some(InstructionInfo {
+        instruction: Instruction::BitwiseAnd | Instruction::BitwiseOr,
+        ..
+      })
+    )
+  }
+
+  fn last_singular_dominated_node(&self, node: NodeIndex) -> Option<NodeIndex> {
+    let frontiers = &self.frontiers[&node];
+
+    let mut iter = frontiers.iter();
+    let (Some(frontier), None) = (iter.next(), iter.next()) else {
+      return None;
+    };
+
+    let mut edges = self
+      .graph
+      .edges_directed(*frontier, Direction::Incoming)
+      .filter(|edge| {
+        self
+          .dominators
+          .dominators(edge.source())
+          .map(|mut doms| doms.any(|dom| dom == node))
+          .unwrap_or_default()
+      });
+
+    match (edges.next(), edges.next()) {
+      (Some(last), None) => {
+        println!("{:?}", last.source());
+        Some(last.source())
+      }
+      _ => None
     }
   }
 }

@@ -26,7 +26,7 @@ pub struct Function<'input, 'bytes> {
   pub graph:        FunctionGraph<'input, 'bytes>
 }
 
-impl<'input, 'bytes> Function<'input, 'bytes> {
+impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   pub fn new(info: FunctionInfo<'input, 'bytes>) -> Self {
     let graph = FunctionGraph::generate(&info);
     Self {

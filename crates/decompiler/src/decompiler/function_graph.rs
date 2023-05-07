@@ -8,6 +8,7 @@ use petgraph::{
   algo::dominators::{simple_fast, Dominators},
   graph::NodeIndex,
   prelude::DiGraph,
+  stable_graph::StableDiGraph,
   visit::{
     EdgeCount, EdgeIndexable, EdgeRef, FilterNode, GraphBase, IntoEdgesDirected,
     IntoNodeIdentifiers, IntoNodeReferences, NodeIndexable
@@ -76,7 +77,7 @@ pub enum EdgeType {
   Flow
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct FunctionGraphNode<'input, 'bytes> {
   instructions: &'input [InstructionInfo<'bytes>]
 }
@@ -88,7 +89,7 @@ pub struct FunctionGraph<'input, 'bytes> {
   frontiers:  HashMap<NodeIndex, HashSet<NodeIndex>>
 }
 
-impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
+impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
   pub fn generate(function: &FunctionInfo<'input, 'bytes>) -> Self {
     let mut graph: DiGraph<FunctionGraphNode<'input, 'bytes>, EdgeType> = Default::default();
     let destinations = get_destinations(function.instructions);
@@ -184,6 +185,7 @@ impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
       }
     }
 
+    graph = remove_isolated(graph, 0.into());
     let dominators: Dominators<NodeIndex> = simple_fast(&graph, 0.into());
     let frontiers = domination_frontiers(&graph, &dominators);
 
@@ -332,9 +334,16 @@ impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
         }
       }
       ([(then, EdgeType::ConditionalFlow) | (then, EdgeType::ConditionalJump)], _) => {
-        ControlFlow::If {
-          node,
-          then: Box::new(self.node_control_flow(*then))
+        if self.frontiers[then].contains(&node) {
+          ControlFlow::WhileLoop {
+            node,
+            body: Box::new(self.node_control_flow(*then))
+          }
+        } else {
+          ControlFlow::If {
+            node,
+            then: Box::new(self.node_control_flow(*then))
+          }
         }
       }
       ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
@@ -415,7 +424,7 @@ fn get_destinations(instructions: &[InstructionInfo]) -> HashSet<usize> {
   result
 }
 
-fn domination_frontiers<N, E>(
+fn domination_frontiers<N: Debug, E>(
   graph: &DiGraph<N, E>,
   dominators: &Dominators<<DiGraph<N, E> as GraphBase>::NodeId>
 ) -> HashMap<<DiGraph<N, E> as GraphBase>::NodeId, HashSet<<DiGraph<N, E> as GraphBase>::NodeId>> {
@@ -440,11 +449,7 @@ fn domination_frontiers<N, E>(
                 .or_insert(HashSet::default())
                 .insert(node);
 
-              if let Some(dom) = dominators.immediate_dominator(runner) {
-                runner = dom;
-              } else {
-                break;
-              }
+              runner = dominators.immediate_dominator(runner).unwrap();
             }
           }
           None => ()
@@ -454,4 +459,26 @@ fn domination_frontiers<N, E>(
   }
 
   frontiers
+}
+
+fn remove_isolated<'i: 'b, 'b>(
+  graph: DiGraph<FunctionGraphNode<'i, 'b>, EdgeType>,
+  root: NodeIndex
+) -> DiGraph<FunctionGraphNode<'i, 'b>, EdgeType> {
+  let mut connected: HashSet<NodeIndex> = Default::default();
+  let mut stack = vec![root];
+
+  while let Some(head) = stack.pop() {
+    if !connected.contains(&head) {
+      connected.insert(head);
+      for edge in graph.edges_directed(head, Direction::Outgoing) {
+        stack.push(edge.target());
+      }
+    }
+  }
+
+  graph.filter_map(
+    |node, n| connected.contains(&node).then(|| *n),
+    |_, e| Some(*e)
+  )
 }

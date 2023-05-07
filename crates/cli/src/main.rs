@@ -26,7 +26,7 @@ fn main() -> anyhow::Result<()> {
   // - 1271 (lots of && and ||)
   // TODO:
   // - 2229 (loop)
-  let func = function(&disassembly, 1271);
+  let func = function(&disassembly, 6294);
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,

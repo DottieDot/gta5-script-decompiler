@@ -1,5 +1,6 @@
 use std::{
   collections::{HashMap, HashSet, LinkedList},
+  fmt::Debug,
   hash::Hash
 };
 
@@ -50,17 +51,20 @@ pub enum ControlFlow {
     node:  NodeIndex,
     with:  Box<ControlFlow>,
     after: Box<ControlFlow>
-  } // Loop {
-    //   body: Box<ControlFlow>
-    // },
-    // WhileLoop {
-    //   body: Box<ControlFlow>,
-    //   els:  Box<ControlFlow>
-    // },
-    // DoWhile {
-    //   body: Box<ControlFlow>,
-    //   els:  Box<ControlFlow>
-    // }
+  },
+  WhileLoop {
+    node: NodeIndex,
+    body: Box<ControlFlow>
+  },
+  WhileLoopAfter {
+    node:  NodeIndex,
+    body:  Box<ControlFlow>,
+    after: Box<ControlFlow>
+  },
+  Flow {
+    node:  NodeIndex,
+    after: Box<ControlFlow>
+  }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -245,17 +249,39 @@ impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
   }
 
   fn node_control_flow(&self, node: NodeIndex) -> ControlFlow {
-    let edges = self
+    let dominated_edges = self
       .graph
       .edges_directed(node, Direction::Outgoing)
       .filter(|edge| !self.frontiers[&node].contains(&edge.target()))
       .map(|edge| (edge.target(), edge.weight()))
       .collect::<Vec<_>>();
 
-    match &edges[..] {
-      [(a, EdgeType::ConditionalJump), (b, EdgeType::ConditionalFlow)]
-      | [(a, EdgeType::ConditionalFlow), (b, EdgeType::ConditionalJump)] => {
-        if self.is_and_or_node(*a) && self.frontiers[a].contains(b) {
+    let frontier_edges = self
+      .graph
+      .edges_directed(node, Direction::Outgoing)
+      .filter(|edge| self.frontiers[&node].contains(&edge.target()))
+      .map(|edge| (edge.target(), edge.weight()))
+      .collect::<Vec<_>>();
+
+    match (&dominated_edges[..], &frontier_edges[..]) {
+      (
+        [(a, EdgeType::ConditionalJump), (b, EdgeType::ConditionalFlow)]
+        | [(a, EdgeType::ConditionalFlow), (b, EdgeType::ConditionalJump)],
+        _
+      ) => {
+        if self.frontiers[a].contains(&node) {
+          ControlFlow::WhileLoopAfter {
+            node,
+            body: Box::new(self.node_control_flow(*a)),
+            after: Box::new(self.node_control_flow(*b))
+          }
+        } else if self.frontiers[b].contains(&node) {
+          ControlFlow::WhileLoopAfter {
+            node,
+            body: Box::new(self.node_control_flow(*b)),
+            after: Box::new(self.node_control_flow(*a))
+          }
+        } else if self.is_and_or_node(*a) && self.frontiers[a].contains(b) {
           ControlFlow::AndOr {
             node,
             with: Box::new(self.node_control_flow(*a)),
@@ -305,13 +331,19 @@ impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
           }
         }
       }
-      [(then, EdgeType::ConditionalFlow) | (then, EdgeType::ConditionalJump)] => {
+      ([(then, EdgeType::ConditionalFlow) | (then, EdgeType::ConditionalJump)], _) => {
         ControlFlow::If {
           node,
           then: Box::new(self.node_control_flow(*then))
         }
       }
-      [] => ControlFlow::Leaf { node },
+      ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
+        ControlFlow::Flow {
+          node,
+          after: Box::new(self.node_control_flow(*after))
+        }
+      }
+      ([], _) => ControlFlow::Leaf { node },
       _ => todo!()
     }
   }
@@ -350,10 +382,7 @@ impl<'input, 'bytes> FunctionGraph<'input, 'bytes> {
       });
 
     match (edges.next(), edges.next()) {
-      (Some(last), None) => {
-        println!("{:?}", last.source());
-        Some(last.source())
-      }
+      (Some(last), None) => Some(last.source()),
       _ => None
     }
   }

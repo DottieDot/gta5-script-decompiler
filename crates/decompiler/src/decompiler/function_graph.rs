@@ -17,13 +17,14 @@ use petgraph::{
 };
 
 use crate::{
+  common::ParentedList,
   disassembler::{Instruction, InstructionInfo, SwitchCase},
   formatters::AssemblyFormatter
 };
 
 use super::function::FunctionInfo;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ControlFlow {
   If {
     node: NodeIndex,
@@ -65,6 +66,10 @@ pub enum ControlFlow {
   Flow {
     node:  NodeIndex,
     after: Box<ControlFlow>
+  },
+  Break {
+    node:   NodeIndex,
+    breaks: NodeIndex
   }
 }
 
@@ -185,7 +190,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
       }
     }
 
-    graph = remove_isolated(graph, 0.into());
+    graph = remove_unreachable(graph, 0.into());
     let dominators: Dominators<NodeIndex> = simple_fast(&graph, 0.into());
     let frontiers = domination_frontiers(&graph, &dominators);
 
@@ -247,10 +252,14 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
   }
 
   pub fn reconstruct_control_flow(&self) -> ControlFlow {
-    self.node_control_flow(self.dominators.root())
+    self.node_control_flow(self.dominators.root(), Default::default())
   }
 
-  fn node_control_flow(&self, node: NodeIndex) -> ControlFlow {
+  fn node_control_flow(
+    &self,
+    node: NodeIndex,
+    parents: ParentedList<'_, FlowParentType>
+  ) -> ControlFlow {
     let dominated_edges = self
       .graph
       .edges_directed(node, Direction::Outgoing)
@@ -274,38 +283,42 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         if self.frontiers[a].contains(&node) {
           ControlFlow::WhileLoopAfter {
             node,
-            body: Box::new(self.node_control_flow(*a)),
-            after: Box::new(self.node_control_flow(*b))
+            body: Box::new(
+              self.node_control_flow(*a, parents.with_appended(FlowParentType::Breakable(node)))
+            ),
+            after: Box::new(self.node_control_flow(*b, parents))
           }
         } else if self.frontiers[b].contains(&node) {
           ControlFlow::WhileLoopAfter {
             node,
-            body: Box::new(self.node_control_flow(*b)),
-            after: Box::new(self.node_control_flow(*a))
+            body: Box::new(
+              self.node_control_flow(*b, parents.with_appended(FlowParentType::Breakable(node)))
+            ),
+            after: Box::new(self.node_control_flow(*a, parents))
           }
         } else if self.is_and_or_node(*a) && self.frontiers[a].contains(b) {
           ControlFlow::AndOr {
             node,
-            with: Box::new(self.node_control_flow(*a)),
-            after: Box::new(self.node_control_flow(*b))
+            with: Box::new(self.node_control_flow(*a, parents)),
+            after: Box::new(self.node_control_flow(*b, parents))
           }
         } else if self.is_and_or_node(*b) && self.frontiers[b].contains(a) {
           ControlFlow::AndOr {
             node,
-            with: Box::new(self.node_control_flow(*b)),
-            after: Box::new(self.node_control_flow(*a))
+            with: Box::new(self.node_control_flow(*b, parents)),
+            after: Box::new(self.node_control_flow(*a, parents))
           }
         } else if self.frontiers[a].contains(b) {
           ControlFlow::IfAfter {
             node,
-            then: Box::new(self.node_control_flow(*a)),
-            after: Box::new(self.node_control_flow(*b))
+            then: Box::new(self.node_control_flow(*a, parents)),
+            after: Box::new(self.node_control_flow(*b, parents))
           }
         } else if self.frontiers[b].contains(a) {
           ControlFlow::IfAfter {
             node,
-            then: Box::new(self.node_control_flow(*b)),
-            after: Box::new(self.node_control_flow(*a))
+            then: Box::new(self.node_control_flow(*b, parents)),
+            after: Box::new(self.node_control_flow(*a, parents))
           }
         } else {
           let intersect = self.frontiers[a]
@@ -317,16 +330,16 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             [after] if !self.frontiers[a].contains(&after) => {
               ControlFlow::IfElseAfter {
                 node,
-                then: Box::new(self.node_control_flow(*a)),
-                els: Box::new(self.node_control_flow(*b)),
-                after: Box::new(self.node_control_flow(after))
+                then: Box::new(self.node_control_flow(*a, parents)),
+                els: Box::new(self.node_control_flow(*b, parents)),
+                after: Box::new(self.node_control_flow(after, parents))
               }
             }
             [] | [_] => {
               ControlFlow::IfElse {
                 node,
-                then: Box::new(self.node_control_flow(*a)),
-                els: Box::new(self.node_control_flow(*b))
+                then: Box::new(self.node_control_flow(*a, parents)),
+                els: Box::new(self.node_control_flow(*b, parents))
               }
             }
             _ => todo!()
@@ -337,20 +350,26 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         if self.frontiers[then].contains(&node) {
           ControlFlow::WhileLoop {
             node,
-            body: Box::new(self.node_control_flow(*then))
+            body: Box::new(self.node_control_flow(
+              *then,
+              parents.with_appended(FlowParentType::Breakable(node))
+            ))
           }
         } else {
           ControlFlow::If {
             node,
-            then: Box::new(self.node_control_flow(*then))
+            then: Box::new(self.node_control_flow(*then, parents))
           }
         }
       }
       ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
         ControlFlow::Flow {
           node,
-          after: Box::new(self.node_control_flow(*after))
+          after: Box::new(self.node_control_flow(*after, parents))
         }
+      }
+      ([], [(target, EdgeType::Jump)]) if let Some(breaks) = self.get_break(*target, parents) => {
+        ControlFlow::Break { node, breaks }
       }
       ([], _) => ControlFlow::Leaf { node },
       _ => todo!()
@@ -369,6 +388,20 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         ..
       })
     )
+  }
+
+  fn get_break(
+    &self,
+    target: NodeIndex,
+    parents: ParentedList<'_, FlowParentType>
+  ) -> Option<NodeIndex> {
+    parents.iter().find_map(|flow| {
+      match flow {
+        FlowParentType::Breakable(parent) => {
+          self.frontiers[parent].contains(&target).then_some(*parent)
+        }
+      }
+    })
   }
 
   fn last_singular_dominated_node(&self, node: NodeIndex) -> Option<NodeIndex> {
@@ -441,18 +474,15 @@ fn domination_frontiers<N: Debug, E>(
       for p in predecessors {
         let mut runner = p;
 
-        match dominators.immediate_dominator(node) {
-          Some(dominator) => {
-            while runner != dominator {
-              frontiers
-                .entry(runner)
-                .or_insert(HashSet::default())
-                .insert(node);
+        if let Some(dominator) = dominators.immediate_dominator(node) {
+          while runner != dominator {
+            frontiers
+              .entry(runner)
+              .or_insert(HashSet::default())
+              .insert(node);
 
-              runner = dominators.immediate_dominator(runner).unwrap();
-            }
+            runner = dominators.immediate_dominator(runner).unwrap();
           }
-          None => ()
         }
       }
     }
@@ -461,7 +491,7 @@ fn domination_frontiers<N: Debug, E>(
   frontiers
 }
 
-fn remove_isolated<'i: 'b, 'b>(
+fn remove_unreachable<'i: 'b, 'b>(
   graph: DiGraph<FunctionGraphNode<'i, 'b>, EdgeType>,
   root: NodeIndex
 ) -> DiGraph<FunctionGraphNode<'i, 'b>, EdgeType> {
@@ -478,7 +508,12 @@ fn remove_isolated<'i: 'b, 'b>(
   }
 
   graph.filter_map(
-    |node, n| connected.contains(&node).then(|| *n),
+    |node, n| connected.contains(&node).then_some(*n),
     |_, e| Some(*e)
   )
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FlowParentType {
+  Breakable(NodeIndex)
 }

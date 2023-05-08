@@ -1,9 +1,7 @@
 use std::fs;
 
 use gta5_script_decompiler::{
-  decompiler::{decompile_function, function, function_dot_string},
-  disassembler::disassemble,
-  formatters::AssemblyFormatter,
+  decompiler::function, disassembler::disassemble, formatters::AssemblyFormatter,
   script::parse_ysc_file
 };
 

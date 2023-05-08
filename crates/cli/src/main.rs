@@ -22,11 +22,11 @@ fn main() -> anyhow::Result<()> {
   // - 2283 (|| else if)
   // - 1191 (&& and ||)
   // - 1271 (lots of && and ||)
-  // TODO:
-  // - 2229 (loop)
+  // - 2229 (while & break)
   // - 6294 (switch)
+  // TODO:
   // - 686 (disconnected loop)
-  let func = function(&disassembly, 2229);
+  let func = function(&disassembly, 686);
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,

@@ -1,18 +1,15 @@
 use std::{
+  borrow::Borrow,
   collections::{HashMap, HashSet, LinkedList},
-  fmt::Debug,
-  hash::Hash
+  fmt::Debug, ops::Sub
 };
 
+use itertools::Itertools;
 use petgraph::{
   algo::dominators::{simple_fast, Dominators},
   graph::NodeIndex,
   prelude::DiGraph,
-  stable_graph::StableDiGraph,
-  visit::{
-    EdgeCount, EdgeIndexable, EdgeRef, FilterNode, GraphBase, IntoEdgesDirected,
-    IntoNodeIdentifiers, IntoNodeReferences, NodeIndexable
-  },
+  visit::{EdgeRef, GraphBase, IntoNodeIdentifiers, IntoNodeReferences},
   Direction
 };
 
@@ -70,7 +67,18 @@ pub enum ControlFlow {
   Break {
     node:   NodeIndex,
     breaks: NodeIndex
+  },
+  Switch {
+    node:  NodeIndex,
+    cases: Vec<(ControlFlow, Vec<CaseValue>)>,
+    after: Option<Box<ControlFlow>>
   }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CaseValue {
+  Default,
+  Value(i64)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -233,7 +241,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
 
     for edge in self.graph.edge_references() {
       diagram.push_back(format!(
-        "node_{origin}->node_{dest}[color={color}]",
+        "node_{origin}->node_{dest}[color={color},{extra}]",
         origin = edge.source().index(),
         dest = edge.target().index(),
         color = {
@@ -241,6 +249,12 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             EdgeType::ConditionalJump | EdgeType::Case(..) => "darkgreen",
             EdgeType::ConditionalFlow => "red4",
             EdgeType::Flow | EdgeType::Jump => "black"
+          }
+        },
+        extra = {
+          match edge.weight() {
+            EdgeType::Case(value) => format!("label=\"{value}\""),
+            _ => "".to_owned()
           }
         }
       ));
@@ -362,6 +376,44 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           }
         }
       }
+      ([.., (_, EdgeType::Case(..))] | [(_, EdgeType::Case(..)), ..], []) => {
+        let grouped = dominated_edges.iter().group_by(|(dest, _)| dest);
+
+        let cases = grouped
+          .into_iter()
+          .map(|(key, group)| {
+            (*key, group.map(|(_, e)| match e {
+              EdgeType::ConditionalFlow => CaseValue::Default,
+              EdgeType::Case(value) => CaseValue::Value(*value),
+              _ => panic!("unexpected switch flow")
+            }).collect_vec())
+          })
+          .collect_vec();
+
+        let case_set = cases.iter().map(|(index, _)| *index).collect::<HashSet<_>>();
+
+        let mut case_frontiers = cases
+          .iter()
+          .flat_map(|(node, _)| self.frontiers[node].sub(&case_set))
+          .dedup();
+
+        let after = match (case_frontiers.next(), case_frontiers.next()) {
+          (None, _) => None,
+          (Some(frontier), None) => Some(Box::new(self.node_control_flow(frontier, parents))),
+          (Some(_), Some(_)) => panic!("multiple frontiers for switch cases.")
+        };
+
+        ControlFlow::Switch { 
+          node, 
+          cases: cases
+            .into_iter()
+            .map(|(node, cases)| {
+              (self.node_control_flow(node, parents), cases)
+            })
+            .collect(), 
+          after
+        }
+      }
       ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
         ControlFlow::Flow {
           node,
@@ -457,6 +509,7 @@ fn get_destinations(instructions: &[InstructionInfo]) -> HashSet<usize> {
   result
 }
 
+// https://github.com/m4b/petgraph/blob/9a6af51bf9803414d68e27f5e8d08600ce2a6212/src/algo/dominators.rs#L90
 fn domination_frontiers<N: Debug, E>(
   graph: &DiGraph<N, E>,
   dominators: &Dominators<<DiGraph<N, E> as GraphBase>::NodeId>

@@ -476,10 +476,12 @@ fn domination_frontiers<N: Debug, E>(
 
         if let Some(dominator) = dominators.immediate_dominator(node) {
           while runner != dominator {
-            frontiers
-              .entry(runner)
-              .or_insert(HashSet::default())
-              .insert(node);
+            if runner != node {
+              frontiers
+                .entry(runner)
+                .or_insert(HashSet::default())
+                .insert(node);
+            }
 
             runner = dominators.immediate_dominator(runner).unwrap();
           }

@@ -1,7 +1,7 @@
 use std::{
-  borrow::Borrow,
   collections::{HashMap, HashSet, LinkedList},
-  fmt::Debug, ops::Sub
+  fmt::Debug,
+  ops::Sub
 };
 
 use itertools::Itertools;
@@ -298,7 +298,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           ControlFlow::WhileLoopAfter {
             node,
             body: Box::new(
-              self.node_control_flow(*a, parents.with_appended(FlowParentType::Breakable(node)))
+              self.node_control_flow(*a, parents.with_appended(FlowParentType::Loop {node, after: Some(*b) }))
             ),
             after: Box::new(self.node_control_flow(*b, parents))
           }
@@ -306,7 +306,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           ControlFlow::WhileLoopAfter {
             node,
             body: Box::new(
-              self.node_control_flow(*b, parents.with_appended(FlowParentType::Breakable(node)))
+              self.node_control_flow(*b, parents.with_appended(FlowParentType::Loop{node, after: Some(*b)}))
             ),
             after: Box::new(self.node_control_flow(*a, parents))
           }
@@ -325,13 +325,13 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         } else if self.frontiers[a].contains(b) {
           ControlFlow::IfAfter {
             node,
-            then: Box::new(self.node_control_flow(*a, parents)),
+            then: Box::new(self.node_control_flow(*a, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*b) }))),
             after: Box::new(self.node_control_flow(*b, parents))
           }
         } else if self.frontiers[b].contains(a) {
           ControlFlow::IfAfter {
             node,
-            then: Box::new(self.node_control_flow(*b, parents)),
+            then: Box::new(self.node_control_flow(*b, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*a) }))),
             after: Box::new(self.node_control_flow(*a, parents))
           }
         } else {
@@ -344,8 +344,8 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             [after] if !self.frontiers[a].contains(&after) => {
               ControlFlow::IfElseAfter {
                 node,
-                then: Box::new(self.node_control_flow(*a, parents)),
-                els: Box::new(self.node_control_flow(*b, parents)),
+                then: Box::new(self.node_control_flow(*a, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
+                els: Box::new(self.node_control_flow(*b, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
                 after: Box::new(self.node_control_flow(after, parents))
               }
             }
@@ -366,7 +366,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             node,
             body: Box::new(self.node_control_flow(
               *then,
-              parents.with_appended(FlowParentType::Breakable(node))
+              parents.with_appended(FlowParentType::Loop{ node, after: None })
             ))
           }
         } else {
@@ -397,21 +397,21 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           .flat_map(|(node, _)| self.frontiers[node].sub(&case_set))
           .dedup();
 
-        let after = match (case_frontiers.next(), case_frontiers.next()) {
+        let after_node = match (case_frontiers.next(), case_frontiers.next()) {
           (None, _) => None,
-          (Some(frontier), None) => Some(Box::new(self.node_control_flow(frontier, parents))),
+          (Some(frontier), None) => Some(frontier),
           (Some(_), Some(_)) => panic!("multiple frontiers for switch cases.")
         };
 
-        ControlFlow::Switch { 
-          node, 
+        ControlFlow::Switch {
+          node,
           cases: cases
             .into_iter()
             .map(|(node, cases)| {
-              (self.node_control_flow(node, parents), cases)
+              (self.node_control_flow(node, parents.with_appended(FlowParentType::Switch { node, after: after_node })), cases)
             })
-            .collect(), 
-          after
+            .collect(),
+          after: after_node.map(|after| Box::new(self.node_control_flow(after, parents)))
         }
       }
       ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
@@ -447,13 +447,46 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     target: NodeIndex,
     parents: ParentedList<'_, FlowParentType>
   ) -> Option<NodeIndex> {
-    parents.iter().find_map(|flow| {
-      match flow {
-        FlowParentType::Breakable(parent) => {
-          self.frontiers[parent].contains(&target).then_some(*parent)
+    let mut iter = parents.iter().peekable();
+    while let Some(FlowParentType::Loop { node, after } | FlowParentType::Switch { node, after }) =
+      iter.find(|flow| {
+        matches!(
+          flow,
+          FlowParentType::Loop { .. } | FlowParentType::Switch { .. }
+        )
+      })
+    {
+      let mut after = *after;
+
+      while let Some(next) = iter.peek() {
+        // https://github.com/rust-lang/rust/issues/53667
+        if after.is_some() {
+          break;
+        }
+
+        match next {
+          FlowParentType::Loop { node, .. } => {
+            after = Some(*node);
+            break;
+          }
+          FlowParentType::NonBreakable {
+            after: after_node, ..
+          }
+          | FlowParentType::Switch {
+            after: after_node, ..
+          } => {
+            after = *after_node;
+            iter.next();
+          }
         }
       }
-    })
+
+      if after.is_some() && after.unwrap() == target {
+        return Some(*node);
+      }
+    }
+
+    None
   }
 
   fn last_singular_dominated_node(&self, node: NodeIndex) -> Option<NodeIndex> {
@@ -570,5 +603,17 @@ fn remove_unreachable<'i: 'b, 'b>(
 
 #[derive(Debug, Clone, Copy)]
 enum FlowParentType {
-  Breakable(NodeIndex)
+  Loop {
+    node:  NodeIndex,
+    after: Option<NodeIndex>
+  },
+  Switch {
+    node:  NodeIndex,
+    after: Option<NodeIndex>
+  },
+  NonBreakable {
+    #[allow(dead_code)]
+    node:  NodeIndex,
+    after: Option<NodeIndex>
+  }
 }

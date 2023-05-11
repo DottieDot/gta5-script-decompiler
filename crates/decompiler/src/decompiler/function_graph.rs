@@ -24,24 +24,15 @@ use super::function::FunctionInfo;
 #[derive(Debug, Clone)]
 pub enum ControlFlow {
   If {
-    node: NodeIndex,
-    then: Box<ControlFlow>
-  },
-  IfAfter {
     node:  NodeIndex,
     then:  Box<ControlFlow>,
-    after: Box<ControlFlow>
+    after: Option<Box<ControlFlow>>
   },
   IfElse {
-    node: NodeIndex,
-    then: Box<ControlFlow>,
-    els:  Box<ControlFlow>
-  },
-  IfElseAfter {
     node:  NodeIndex,
     then:  Box<ControlFlow>,
     els:   Box<ControlFlow>,
-    after: Box<ControlFlow>
+    after: Option<Box<ControlFlow>>
   },
   Leaf {
     node: NodeIndex
@@ -52,13 +43,9 @@ pub enum ControlFlow {
     after: Box<ControlFlow>
   },
   WhileLoop {
-    node: NodeIndex,
-    body: Box<ControlFlow>
-  },
-  WhileLoopAfter {
     node:  NodeIndex,
     body:  Box<ControlFlow>,
-    after: Box<ControlFlow>
+    after: Option<Box<ControlFlow>>
   },
   Flow {
     node:  NodeIndex,
@@ -79,6 +66,36 @@ pub enum ControlFlow {
   }
 }
 
+impl ControlFlow {
+  pub fn node(&self) -> NodeIndex {
+    match self {
+      ControlFlow::If { node, .. }
+      | ControlFlow::IfElse { node, .. }
+      | ControlFlow::Leaf { node }
+      | ControlFlow::AndOr { node, .. }
+      | ControlFlow::WhileLoop { node, .. }
+      | ControlFlow::Flow { node, .. }
+      | ControlFlow::Break { node, .. }
+      | ControlFlow::Continue { node, .. }
+      | ControlFlow::Switch { node, .. } => *node
+    }
+  }
+
+  pub fn after(&self) -> Option<&Box<ControlFlow>> {
+    match self {
+      ControlFlow::If { after, .. }
+      | ControlFlow::IfElse { after, .. }
+      | ControlFlow::WhileLoop { after, .. }
+      | ControlFlow::Switch { after, .. } => after.as_ref(),
+      ControlFlow::AndOr { after, .. } => Some(after),
+      ControlFlow::Continue { .. }
+      | ControlFlow::Break { .. }
+      | ControlFlow::Flow { .. }
+      | ControlFlow::Leaf { .. } => None
+    }
+  }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum CaseValue {
   Default,
@@ -96,7 +113,7 @@ pub enum EdgeType {
 
 #[derive(Debug, Clone, Copy)]
 pub struct FunctionGraphNode<'input, 'bytes> {
-  instructions: &'input [InstructionInfo<'bytes>]
+  pub instructions: &'input [InstructionInfo<'bytes>]
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +286,10 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     diagram.into_iter().collect::<Vec<_>>().join("")
   }
 
+  pub fn get_node(&self, node: NodeIndex) -> Option<&FunctionGraphNode> {
+    self.graph.node_weight(node)
+  }
+
   pub fn reconstruct_control_flow(&self) -> ControlFlow {
     self.node_control_flow(self.dominators.root(), Default::default())
   }
@@ -299,20 +320,20 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         _
       ) => {
         if self.frontiers[a].contains(&node) {
-          ControlFlow::WhileLoopAfter {
+          ControlFlow::WhileLoop {
             node,
             body: Box::new(
               self.node_control_flow(*a, parents.with_appended(FlowParentType::Loop { node, after: Some(*b) }))
             ),
-            after: Box::new(self.node_control_flow(*b, parents))
+            after: Some(Box::new(self.node_control_flow(*b, parents)))
           }
         } else if self.frontiers[b].contains(&node) {
-          ControlFlow::WhileLoopAfter {
+          ControlFlow::WhileLoop {
             node,
             body: Box::new(
               self.node_control_flow(*b, parents.with_appended(FlowParentType::Loop{ node, after: Some(*b)}))
             ),
-            after: Box::new(self.node_control_flow(*a, parents))
+            after: Some(Box::new(self.node_control_flow(*a, parents)))
           }
         } else if self.is_and_or_node(*a) && self.frontiers[a].contains(b) {
           ControlFlow::AndOr {
@@ -327,16 +348,16 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             after: Box::new(self.node_control_flow(*a, parents))
           }
         } else if self.frontiers[a].contains(b) {
-          ControlFlow::IfAfter {
+          ControlFlow::If {
             node,
             then: Box::new(self.node_control_flow(*a, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*b) }))),
-            after: Box::new(self.node_control_flow(*b, parents))
+            after: Some(Box::new(self.node_control_flow(*b, parents)))
           }
         } else if self.frontiers[b].contains(a) {
-          ControlFlow::IfAfter {
+          ControlFlow::If {
             node,
             then: Box::new(self.node_control_flow(*b, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*a) }))),
-            after: Box::new(self.node_control_flow(*a, parents))
+            after: Some(Box::new(self.node_control_flow(*a, parents)))
           }
         } else {
           let intersect = self.frontiers[a]
@@ -346,18 +367,19 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
 
           match intersect[..] {
             [after] if !self.frontiers[a].contains(&after) => {
-              ControlFlow::IfElseAfter {
+              ControlFlow::IfElse {
                 node,
                 then: Box::new(self.node_control_flow(*a, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
                 els: Box::new(self.node_control_flow(*b, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
-                after: Box::new(self.node_control_flow(after, parents))
+                after: Some(Box::new(self.node_control_flow(after, parents)))
               }
             }
             [] | [_] => {
               ControlFlow::IfElse {
                 node,
                 then: Box::new(self.node_control_flow(*a, parents)),
-                els: Box::new(self.node_control_flow(*b, parents))
+                els: Box::new(self.node_control_flow(*b, parents)),
+                after: None
               }
             }
             _ => todo!()
@@ -371,12 +393,14 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             body: Box::new(self.node_control_flow(
               *then,
               parents.with_appended(FlowParentType::Loop{ node, after: None })
-            ))
+            )),
+            after: None
           }
         } else {
           ControlFlow::If {
             node,
-            then: Box::new(self.node_control_flow(*then, parents))
+            then: Box::new(self.node_control_flow(*then, parents)),
+            after: None
           }
         }
       }

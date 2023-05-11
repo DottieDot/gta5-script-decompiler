@@ -1,7 +1,9 @@
 use std::fs;
 
 use gta5_script_decompiler::{
-  decompiler::function, disassembler::disassemble, formatters::AssemblyFormatter,
+  decompiler::{decompile_function, function},
+  disassembler::disassemble,
+  formatters::AssemblyFormatter,
   script::parse_ysc_file
 };
 
@@ -24,9 +26,9 @@ fn main() -> anyhow::Result<()> {
   // - 1271 (lots of && and ||)
   // - 2229 (while & break)
   // - 6294 (switch)
-  // TODO:
   // - 686 (disconnected loop)
-  let func = function(&disassembly, 2229);
+  // TODO:
+  let func = function(&disassembly, 2243);
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,
@@ -65,9 +67,9 @@ fn main() -> anyhow::Result<()> {
     }
   */
 
-  // let decompiled = decompile_function(&disassembly, &script, 485)?;
+  let decompiled = decompile_function(&disassembly, &script, 2243)?;
 
-  // fs::write("output.rs", format!("{decompiled:#?}"))?;
+  fs::write("output.rs", format!("{decompiled:#?}"))?;
 
   Ok(())
 }

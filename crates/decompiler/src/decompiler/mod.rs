@@ -6,17 +6,16 @@ use crate::{
   script::Script
 };
 
-use self::{
-  decompiled::DecompiledFunction,
-  function::{Function, FunctionInfo},
-  stack::InvalidStackError
-};
+use self::{decompiled::DecompiledFunction, stack::InvalidStackError};
 
-mod decompiled;
+pub mod decompiled;
 mod function;
 mod function_graph;
 mod stack;
 mod stack_entry;
+
+pub use function::*;
+pub use stack_entry::*;
 
 fn find_functions<'bytes, 'input: 'bytes>(
   instructions: &'input [InstructionInfo]
@@ -80,6 +79,10 @@ pub fn function<'i: 'b, 'b>(
 ) -> Function<'i, 'b> {
   let mut functions = find_functions(instructions);
   functions.swap_remove(function)
+}
+
+pub fn functions<'i: 'b, 'b>(instructions: &'i [InstructionInfo<'b>]) -> Vec<Function<'i, 'b>> {
+  find_functions(instructions)
 }
 
 pub fn function_dot_string(

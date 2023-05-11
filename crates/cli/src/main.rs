@@ -1,9 +1,9 @@
-use std::fs;
+use std::{collections::HashMap, fs};
 
 use gta5_script_decompiler::{
-  decompiler::{decompile_function, function},
+  decompiler::{decompile_function, function, functions},
   disassembler::disassemble,
-  formatters::AssemblyFormatter,
+  formatters::{AssemblyFormatter, CppFormatter},
   script::parse_ysc_file
 };
 
@@ -17,6 +17,13 @@ fn main() -> anyhow::Result<()> {
 
   // fs::write("output.scasm", output)?;
 
+  let functions = functions(&disassembly);
+  let function_map = functions
+    .clone()
+    .into_iter()
+    .map(|f| (f.location, f))
+    .collect::<HashMap<_, _>>();
+
   // *WORKS:
   // - 2243
   // - 2262 (&&)
@@ -28,7 +35,7 @@ fn main() -> anyhow::Result<()> {
   // - 6294 (switch)
   // - 686 (disconnected loop)
   // TODO:
-  let func = function(&disassembly, 2243);
+  let func = &functions[2352];
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,
@@ -67,9 +74,12 @@ fn main() -> anyhow::Result<()> {
     }
   */
 
-  let decompiled = decompile_function(&disassembly, &script, 2243)?;
+  let cpp_formatter = CppFormatter::new(&function_map);
+  let decompiled = func.decompile(&script, &function_map)?;
+  let formatted = cpp_formatter.format_function(&decompiled);
 
   fs::write("output.rs", format!("{decompiled:#?}"))?;
+  fs::write("output.cpp", formatted)?;
 
   Ok(())
 }

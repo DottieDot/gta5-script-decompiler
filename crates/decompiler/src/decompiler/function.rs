@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::{
   decompiler::{
@@ -248,6 +248,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_array_item(*item_size as usize)?;
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -265,6 +266,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_local(*offset as usize);
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -282,6 +284,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_static(*static_index as usize);
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -306,6 +309,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_const_offset(*offset as i64)?;
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -330,6 +334,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_const_offset(*offset as i64)?;
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -364,6 +369,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_local(*local_index as usize);
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -381,6 +387,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_static(*static_index as usize);
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -398,6 +405,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_global(*global_index as usize);
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -413,8 +421,30 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         | Instruction::IfLowerThanJumpZero { .. }
         | Instruction::IfLowerOrEqualJumpZero { .. }
         | Instruction::Switch { .. } => {
+          match &info.instruction {
+            Instruction::IfEqualJumpZero { .. } => {
+              stack.push_binary_operator(Type::Bool, BinaryOperator::Equal)?
+            }
+            Instruction::IfNotEqualJumpZero { .. } => {
+              stack.push_binary_operator(Type::Bool, BinaryOperator::NotEqual)?
+            }
+            Instruction::IfGreaterThanJumpZero { .. } => {
+              stack.push_binary_operator(Type::Bool, BinaryOperator::GreaterThan)?
+            }
+            Instruction::IfGreaterOrEqualJumpZero { .. } => {
+              stack.push_binary_operator(Type::Bool, BinaryOperator::GreaterOrEqual)?
+            }
+            Instruction::IfLowerThanJumpZero { .. } => {
+              stack.push_binary_operator(Type::Bool, BinaryOperator::LowerThan)?
+            }
+            Instruction::IfLowerOrEqualJumpZero { .. } => {
+              stack.push_binary_operator(Type::Bool, BinaryOperator::LowerOrEqual)?
+            }
+            _ => {}
+          }
+
           match &flow {
-            ControlFlow::If { then, after, .. } => {
+            ControlFlow::If { then, .. } => {
               statements.push(StatementInfo {
                 instructions: &self.instructions[index..=index],
                 statement:    Statement::If {
@@ -458,11 +488,6 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             }
             ControlFlow::Switch { cases, .. } => todo!()
           };
-          if let Some(after) = flow.after() {
-            statements.extend(self.decompile_node(script, functions, after, stack)?);
-          }
-          // Allows `stack` to be moved.
-          break;
         }
         Instruction::FunctionCall { location } => {
           let location = *location as usize;
@@ -498,6 +523,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_static(*static_index as usize);
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -515,6 +541,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_global(*global_index as usize);
+                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -559,6 +586,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::PushConstF7 => stack.push_float(7f32),
         Instruction::BitTest => stack.push_binary_operator(Type::Bool, BinaryOperator::BitTest)?
       };
+    }
+
+    if let Some(after) = flow.after() {
+      statements.extend(self.decompile_node(script, functions, after, stack)?);
     }
 
     Ok(statements)

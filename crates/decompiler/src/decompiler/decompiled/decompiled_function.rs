@@ -1,4 +1,4 @@
-use super::{Statement, StatementInfo};
+use super::StatementInfo;
 
 #[derive(Debug)]
 pub struct DecompiledFunction<'input, 'bytes> {

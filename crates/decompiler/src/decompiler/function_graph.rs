@@ -87,11 +87,8 @@ impl ControlFlow {
       | ControlFlow::IfElse { after, .. }
       | ControlFlow::WhileLoop { after, .. }
       | ControlFlow::Switch { after, .. } => after.as_ref(),
-      ControlFlow::AndOr { after, .. } => Some(after),
-      ControlFlow::Continue { .. }
-      | ControlFlow::Break { .. }
-      | ControlFlow::Flow { .. }
-      | ControlFlow::Leaf { .. } => None
+      ControlFlow::AndOr { after, .. } | ControlFlow::Flow { after, .. } => Some(after),
+      ControlFlow::Continue { .. } | ControlFlow::Break { .. } | ControlFlow::Leaf { .. } => None
     }
   }
 }

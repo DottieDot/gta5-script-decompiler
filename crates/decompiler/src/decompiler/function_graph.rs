@@ -68,6 +68,10 @@ pub enum ControlFlow {
     node:   NodeIndex,
     breaks: NodeIndex
   },
+  Continue {
+    node:      NodeIndex,
+    continues: NodeIndex
+  },
   Switch {
     node:  NodeIndex,
     cases: Vec<(ControlFlow, Vec<CaseValue>)>,
@@ -298,7 +302,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           ControlFlow::WhileLoopAfter {
             node,
             body: Box::new(
-              self.node_control_flow(*a, parents.with_appended(FlowParentType::Loop {node, after: Some(*b) }))
+              self.node_control_flow(*a, parents.with_appended(FlowParentType::Loop { node, after: Some(*b) }))
             ),
             after: Box::new(self.node_control_flow(*b, parents))
           }
@@ -306,7 +310,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           ControlFlow::WhileLoopAfter {
             node,
             body: Box::new(
-              self.node_control_flow(*b, parents.with_appended(FlowParentType::Loop{node, after: Some(*b)}))
+              self.node_control_flow(*b, parents.with_appended(FlowParentType::Loop{ node, after: Some(*b)}))
             ),
             after: Box::new(self.node_control_flow(*a, parents))
           }
@@ -423,6 +427,9 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
       ([], [(target, EdgeType::Jump)]) if let Some(breaks) = self.get_break(*target, parents) => {
         ControlFlow::Break { node, breaks }
       }
+      ([], [(target, EdgeType::Jump)]) if let Some(continues) = self.get_continue(*target, parents) => {
+        ControlFlow::Continue{ node, continues }
+      }
       ([], _) => ControlFlow::Leaf { node },
       _ => todo!()
     }
@@ -487,6 +494,42 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     }
 
     None
+  }
+
+  fn get_continue(
+    &self,
+    target: NodeIndex,
+    parents: ParentedList<'_, FlowParentType>
+  ) -> Option<NodeIndex> {
+    let mut iter = parents.iter();
+
+    let mut loop_node = None;
+    let mut after_node = None;
+
+    while let Some(parent) = iter.next() {
+      match parent {
+        FlowParentType::Loop { node, .. } if *node == target => {
+          loop_node = Some(*node);
+          break;
+        }
+        FlowParentType::Loop { node, .. } if *node != target => {
+          after_node.get_or_insert(*node);
+        }
+        FlowParentType::Switch {
+          after: Some(after), ..
+        }
+        | FlowParentType::NonBreakable {
+          after: Some(after), ..
+        } => {
+          after_node.get_or_insert(*after);
+        }
+        FlowParentType::Switch { .. }
+        | FlowParentType::NonBreakable { .. }
+        | FlowParentType::Loop { .. } => {}
+      }
+    }
+
+    after_node.and(loop_node)
   }
 
   fn last_singular_dominated_node(&self, node: NodeIndex) -> Option<NodeIndex> {

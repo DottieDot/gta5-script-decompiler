@@ -356,7 +356,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             .collect::<Vec<_>>();
 
           match intersect[..] {
-            [after] if !self.frontiers[cond_jmp].contains(&after) => {
+            [after] if self.frontiers[cond_jmp].contains(&after) => {
               ControlFlow::IfElse {
                 node,
                 then: Box::new(self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),

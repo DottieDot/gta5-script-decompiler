@@ -271,6 +271,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           StackEntry::LocalRef(local) => self.format_local(*local, function),
           StackEntry::StaticRef(stat) => format!("static_{stat}"),
           StackEntry::GlobalRef(global) => format!("global_{global}"),
+          StackEntry::ArrayItem { .. } => self.format_stack_entry(deref, function).to_owned(),
           StackEntry::Offset { source, offset } => {
             match source.as_ref() {
               StackEntry::LocalRef(local) => {
@@ -289,6 +290,13 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
               StackEntry::GlobalRef(global) => {
                 format!(
                   "global_{global}->f_{}",
+                  self.format_stack_entry(offset, function)
+                )
+              }
+              StackEntry::ArrayItem { .. } => {
+                format!(
+                  "{}.f_{}",
+                  self.format_stack_entry(source, function),
                   self.format_stack_entry(offset, function)
                 )
               }

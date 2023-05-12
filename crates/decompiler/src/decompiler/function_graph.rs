@@ -318,13 +318,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         _
       ) => {
         if self.frontiers[cond_jmp].contains(&node) {
-          ControlFlow::WhileLoop {
-            node,
-            body: Box::new(
-              self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::Loop { node, after: Some(*cond_flow) }))
-            ),
-            after: Some(Box::new(self.node_control_flow(*cond_flow, parents)))
-          }
+          panic!("inverse if statements are not supported");
         } else if self.frontiers[cond_flow].contains(&node) {
           ControlFlow::WhileLoop {
             node,
@@ -334,11 +328,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             after: Some(Box::new(self.node_control_flow(*cond_jmp, parents)))
           }
         } else if self.is_and_or_node(*cond_jmp) && self.frontiers[cond_jmp].contains(cond_flow) {
-          ControlFlow::AndOr {
-            node,
-            with: Box::new(self.node_control_flow(*cond_jmp, parents)),
-            after: Box::new(self.node_control_flow(*cond_flow, parents))
-          }
+          panic!("inverse if statements are not supported");
         } else if self.is_and_or_node(*cond_flow) && self.frontiers[cond_flow].contains(cond_jmp) {
           ControlFlow::AndOr {
             node,
@@ -346,12 +336,14 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             after: Box::new(self.node_control_flow(*cond_jmp, parents))
           }
         } else if self.frontiers[cond_jmp].contains(cond_flow) {
+          panic!("inverse if statements are not supported");
+        } else if self.frontiers[cond_flow].contains(cond_jmp) {
           ControlFlow::If {
             node,
-            then: Box::new(self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_flow) }))),
-            after: Some(Box::new(self.node_control_flow(*cond_flow, parents)))
+            then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_jmp) }))),
+            after: Some(Box::new(self.node_control_flow(*cond_jmp, parents)))
           }
-        } else if self.frontiers[cond_flow].contains(cond_jmp) {
+        }else if self.frontiers[cond_flow].is_empty()  {
           ControlFlow::If {
             node,
             then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_jmp) }))),

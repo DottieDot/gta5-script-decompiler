@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs};
 
 use gta5_script_decompiler::{
-  decompiler::{decompile_function, function, functions},
+  decompiler::functions,
   disassembler::disassemble,
   formatters::{AssemblyFormatter, CppFormatter},
   script::parse_ysc_file
@@ -9,6 +9,7 @@ use gta5_script_decompiler::{
 
 fn main() -> anyhow::Result<()> {
   let script = parse_ysc_file(r"./input.ysc")?;
+
   let disassembly = disassemble(&script.code)?;
 
   //  let formatter = AssemblyFormatter::new(&disassembly, false, 0, &script.strings);
@@ -35,7 +36,7 @@ fn main() -> anyhow::Result<()> {
   // - 6294 (switch)
   // - 686 (disconnected loop)
   // TODO:
-  let func = &functions[2352];
+  let func = &functions[13564];
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,

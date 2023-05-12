@@ -237,10 +237,12 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::StoreRev => todo!(),
         Instruction::LoadN => stack.push_load_n()?,
         Instruction::StoreN => todo!(),
-        Instruction::ArrayU8 { item_size } => stack.push_array_item(*item_size as usize)?,
+        Instruction::ArrayU8 { item_size } => {
+          stack.push_array_item(*item_size as usize)?;
+          stack.push_reference()?
+        }
         Instruction::ArrayU8Load { item_size } => {
           stack.push_array_item(*item_size as usize)?;
-          stack.push_deref()?
         }
         Instruction::ArrayU8Store { item_size } => {
           statements.push(StatementInfo {
@@ -248,43 +250,40 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_array_item(*item_size as usize)?;
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
             }
           })
         }
-        Instruction::LocalU8 { offset } => stack.push_local(*offset as usize),
-        Instruction::LocalU8Load { offset } => {
+        Instruction::LocalU8 { offset } => {
           stack.push_local(*offset as usize);
-          stack.push_deref()?
+          stack.push_reference()?
         }
+        Instruction::LocalU8Load { offset } => stack.push_local(*offset as usize),
         Instruction::LocalU8Store { offset } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
                 stack.push_local(*offset as usize);
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
             }
           })
         }
-        Instruction::StaticU8 { static_index } => stack.push_static(*static_index as usize),
-        Instruction::StaticU8Load { static_index } => {
+        Instruction::StaticU8 { static_index } => {
           stack.push_static(*static_index as usize);
-          stack.push_deref()?
+          stack.push_reference()?;
         }
+        Instruction::StaticU8Load { static_index } => stack.push_static(*static_index as usize),
         Instruction::StaticU8Store { static_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
                 stack.push_static(*static_index as usize);
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -298,18 +297,17 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_const_int_binary_operator(BinaryOperator::Multiply, *value as i64)?
         }
         Instruction::Offset => stack.push_offset()?,
-        Instruction::OffsetU8 { offset } => stack.push_const_offset(*offset as i64)?,
-        Instruction::OffsetU8Load { offset } => {
+        Instruction::OffsetU8 { offset } => {
           stack.push_const_offset(*offset as i64)?;
-          stack.push_deref()?
+          stack.push_reference()?
         }
+        Instruction::OffsetU8Load { offset } => stack.push_const_offset(*offset as i64)?,
         Instruction::OffsetU8Store { offset } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
                 stack.push_const_offset(*offset as i64)?;
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -323,10 +321,12 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::MultiplyS16 { value } => {
           stack.push_const_int_binary_operator(BinaryOperator::Multiply, *value as i64)?
         }
-        Instruction::OffsetS16 { offset } => stack.push_const_offset(*offset as i64)?,
+        Instruction::OffsetS16 { offset } => {
+          stack.push_const_offset(*offset as i64)?;
+          stack.push_reference()?
+        }
         Instruction::OffsetS16Load { offset } => {
           stack.push_const_offset(*offset as i64)?;
-          stack.push_deref()?
         }
         Instruction::OffsetS16Store { offset } => {
           statements.push(StatementInfo {
@@ -334,17 +334,18 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Assign {
               destination: {
                 stack.push_const_offset(*offset as i64)?;
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
             }
           })
         }
-        Instruction::ArrayU16 { item_size } => stack.push_array_item(*item_size as usize)?,
+        Instruction::ArrayU16 { item_size } => {
+          stack.push_array_item(*item_size as usize)?;
+          stack.push_reference()?
+        }
         Instruction::ArrayU16Load { item_size } => {
           stack.push_array_item(*item_size as usize)?;
-          stack.push_deref()?
         }
         Instruction::ArrayU16Store { item_size } => {
           statements.push(StatementInfo {
@@ -358,54 +359,51 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             }
           })
         }
-        Instruction::LocalU16 { local_index } => stack.push_local(*local_index as usize),
-        Instruction::LocalU16Load { local_index } => {
+        Instruction::LocalU16 { local_index } => {
           stack.push_local(*local_index as usize);
-          stack.push_deref()?
+          stack.push_reference()?
         }
+        Instruction::LocalU16Load { local_index } => stack.push_local(*local_index as usize),
         Instruction::LocalU16Store { local_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
                 stack.push_local(*local_index as usize);
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
             }
           })
         }
-        Instruction::StaticU16 { static_index } => stack.push_static(*static_index as usize),
-        Instruction::StaticU16Load { static_index } => {
+        Instruction::StaticU16 { static_index } => {
           stack.push_static(*static_index as usize);
-          stack.push_deref()?
+          stack.push_reference()?
         }
+        Instruction::StaticU16Load { static_index } => stack.push_static(*static_index as usize),
         Instruction::StaticU16Store { static_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
                 stack.push_static(*static_index as usize);
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
             }
           })
         }
-        Instruction::GlobalU16 { global_index } => stack.push_global(*global_index as usize),
-        Instruction::GlobalU16Load { global_index } => {
+        Instruction::GlobalU16 { global_index } => {
           stack.push_global(*global_index as usize);
-          stack.push_deref()?
+          stack.push_reference()?
         }
+        Instruction::GlobalU16Load { global_index } => stack.push_global(*global_index as usize),
         Instruction::GlobalU16Store { global_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
                 stack.push_global(*global_index as usize);
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -528,36 +526,34 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             })
           }
         }
-        Instruction::StaticU24 { static_index } => stack.push_static(*static_index as usize),
-        Instruction::StaticU24Load { static_index } => {
+        Instruction::StaticU24 { static_index } => {
           stack.push_static(*static_index as usize);
-          stack.push_deref()?
+          stack.push_reference()?
         }
+        Instruction::StaticU24Load { static_index } => stack.push_static(*static_index as usize),
         Instruction::StaticU24Store { static_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
                 stack.push_static(*static_index as usize);
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?
             }
           })
         }
-        Instruction::GlobalU24 { global_index } => stack.push_global(*global_index as usize),
-        Instruction::GlobalU24Load { global_index } => {
+        Instruction::GlobalU24 { global_index } => {
           stack.push_global(*global_index as usize);
-          stack.push_deref()?
+          stack.push_reference()?;
         }
+        Instruction::GlobalU24Load { global_index } => stack.push_global(*global_index as usize),
         Instruction::GlobalU24Store { global_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
                 stack.push_global(*global_index as usize);
-                stack.push_deref()?;
                 stack.pop()?
               },
               source:      stack.pop()?

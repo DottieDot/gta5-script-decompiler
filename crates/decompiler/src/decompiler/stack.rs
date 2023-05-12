@@ -62,15 +62,15 @@ impl Stack {
   }
 
   pub fn push_local(&mut self, local_index: usize) {
-    self.stack.push_back(StackEntry::LocalRef(local_index))
+    self.stack.push_back(StackEntry::Local(local_index))
   }
 
   pub fn push_static(&mut self, static_index: usize) {
-    self.stack.push_back(StackEntry::StaticRef(static_index))
+    self.stack.push_back(StackEntry::Static(static_index))
   }
 
   pub fn push_global(&mut self, global_index: usize) {
-    self.stack.push_back(StackEntry::GlobalRef(global_index))
+    self.stack.push_back(StackEntry::Global(global_index))
   }
 
   pub fn push_deref(&mut self) -> Result<(), InvalidStackError> {

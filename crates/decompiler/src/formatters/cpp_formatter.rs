@@ -195,11 +195,6 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       StackEntry::StructField { source, field } => {
         if let StackEntry::Deref(deref) = source.as_ref() {
           match deref.as_ref() {
-            StackEntry::LocalRef(local) => {
-              return format!("{}->f_{field}", self.format_local(*local, function))
-            }
-            StackEntry::StaticRef(stat) => return format!("static_{stat}->f_{field}"),
-            StackEntry::GlobalRef(global) => return format!("global_{global}->f_{field}"),
             StackEntry::Ref(rf) => {
               return format!("{}->f_{field}", self.format_stack_entry(rf, function))
             }
@@ -210,35 +205,16 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       }
       StackEntry::Offset { source, offset } => {
         match source.as_ref() {
-          StackEntry::LocalRef(local) => {
-            format!(
-              "&({}->f_{})",
-              self.format_local(*local, function),
-              self.format_stack_entry(offset, function)
-            )
-          }
-          StackEntry::StaticRef(stat) => {
-            format!(
-              "&(static_{stat}->f_{})",
-              self.format_stack_entry(offset, function)
-            )
-          }
-          StackEntry::GlobalRef(global) => {
-            format!(
-              "&(global_{global}->f_{})",
-              self.format_stack_entry(offset, function)
-            )
-          }
           StackEntry::Ref(rf) => {
             format!(
-              "&({}->f_{})",
+              "{}->f_{}",
               self.format_stack_entry(rf, function),
               self.format_stack_entry(offset, function)
             )
           }
           _ => {
             format!(
-              "&({}->f_{})",
+              "{}->f_{}",
               self.format_stack_entry(source, function),
               self.format_stack_entry(offset, function)
             )
@@ -251,9 +227,6 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         item_size
       } => {
         let source = match source.as_ref() {
-          StackEntry::LocalRef(local) => self.format_local(*local, function),
-          StackEntry::StaticRef(stat) => format!("static_{stat}"),
-          StackEntry::GlobalRef(stat) => format!("global_{stat}"),
           StackEntry::Ref(stat) => self.format_stack_entry(stat, function),
           other => self.format_stack_entry(other, function)
         };
@@ -263,36 +236,13 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           self.format_stack_entry(index, function)
         )
       }
-      StackEntry::LocalRef(local) => format!("&{}", self.format_local(*local, function)),
-      StackEntry::StaticRef(stat) => format!("&static_{stat}"),
-      StackEntry::GlobalRef(global) => format!("&global_{global}"),
+      StackEntry::Local(local) => format!("{}", self.format_local(*local, function)),
+      StackEntry::Static(stat) => format!("static_{stat}"),
+      StackEntry::Global(global) => format!("global_{global}"),
       StackEntry::Deref(deref) => {
         match deref.as_ref() {
-          StackEntry::LocalRef(local) => self.format_local(*local, function),
-          StackEntry::StaticRef(stat) => format!("static_{stat}"),
-          StackEntry::GlobalRef(global) => format!("global_{global}"),
-          StackEntry::ArrayItem { .. } => self.format_stack_entry(deref, function).to_owned(),
           StackEntry::Offset { source, offset } => {
             match source.as_ref() {
-              StackEntry::LocalRef(local) => {
-                format!(
-                  "{}->f_{}",
-                  self.format_local(*local, function),
-                  self.format_stack_entry(offset, function)
-                )
-              }
-              StackEntry::StaticRef(stat) => {
-                format!(
-                  "static_{stat}->f_{}",
-                  self.format_stack_entry(offset, function)
-                )
-              }
-              StackEntry::GlobalRef(global) => {
-                format!(
-                  "global_{global}->f_{}",
-                  self.format_stack_entry(offset, function)
-                )
-              }
               StackEntry::ArrayItem { .. } => {
                 format!(
                   "{}.f_{}",

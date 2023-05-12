@@ -21,9 +21,9 @@ pub enum StackEntry {
     index:     Box<StackEntry>,
     item_size: usize
   },
-  LocalRef(usize),
-  StaticRef(usize),
-  GlobalRef(usize),
+  Local(usize),
+  Static(usize),
+  Global(usize),
   Deref(Box<StackEntry>),
   Ref(Box<StackEntry>),
   CatchValue,
@@ -68,9 +68,9 @@ impl StackEntry {
           _ => Type::Unknown
         }
       }
-      Self::LocalRef(_) => Type::Unknown,
-      Self::StaticRef(_) => Type::Unknown,
-      Self::GlobalRef(_) => Type::Unknown,
+      Self::Local(_) => Type::Unknown,
+      Self::Static(_) => Type::Unknown,
+      Self::Global(_) => Type::Unknown,
       Self::Deref(entry) => {
         match entry.ty() {
           Type::Pointer(ty) | Type::Array(_, ty) => *ty,

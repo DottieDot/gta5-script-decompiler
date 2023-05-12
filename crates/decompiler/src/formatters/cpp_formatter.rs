@@ -26,7 +26,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       .line("{")
       .branch(|builder| {
         for statement in &function.statements {
-          self.write_statement(statement, function, builder);
+          self.write_statement(statement, function, builder, false);
         }
       })
       .line("}");
@@ -46,7 +46,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
     &self,
     statement: &StatementInfo,
     function: &DecompiledFunction,
-    builder: &mut CodeBuilder
+    builder: &mut CodeBuilder,
+    else_if: bool
   ) {
     match &statement.statement {
       Statement::Nop => {}
@@ -96,13 +97,14 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       Statement::If { condition, then } => {
         builder
           .line(&format!(
-            "if ({})",
+            "{}if ({})",
+            if else_if { "else " } else { "" },
             self.format_stack_entry(condition, function)
           ))
           .line("{")
           .branch(|builder| {
             for statement in then {
-              self.write_statement(statement, function, builder);
+              self.write_statement(statement, function, builder, false);
             }
           })
           .line("}");
@@ -114,24 +116,34 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       } => {
         builder
           .line(&format!(
-            "if ({})",
+            "{}if ({})",
+            if else_if { "else " } else { "" },
             self.format_stack_entry(condition, function)
           ))
           .line("{")
           .branch(|builder| {
             for statement in then {
-              self.write_statement(statement, function, builder);
-            }
-          })
-          .line("}")
-          .line("else")
-          .line("{")
-          .branch(|builder| {
-            for statement in els {
-              self.write_statement(statement, function, builder);
+              self.write_statement(statement, function, builder, false);
             }
           })
           .line("}");
+
+        match &els[..] {
+          [st @ StatementInfo {
+            statement: Statement::IfElse { .. } | Statement::If { .. },
+            ..
+          }] => self.write_statement(st, function, builder, true),
+          _ => {
+            builder
+              .line("{")
+              .branch(|builder| {
+                for statement in then {
+                  self.write_statement(statement, function, builder, false);
+                }
+              })
+              .line("}");
+          }
+        }
       }
       Statement::WhileLoop { condition, body } => {
         builder
@@ -142,7 +154,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           .line("{")
           .branch(|builder| {
             for statement in body {
-              self.write_statement(statement, function, builder);
+              self.write_statement(statement, function, builder, false);
             }
           })
           .line("}");
@@ -164,7 +176,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
               }
               builder.branch(|builder| {
                 for statement in body {
-                  self.write_statement(statement, function, builder);
+                  self.write_statement(statement, function, builder, false);
                 }
               });
             }
@@ -240,34 +252,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       StackEntry::Static(stat) => format!("static_{stat}"),
       StackEntry::Global(global) => format!("global_{global}"),
       StackEntry::Deref(deref) => {
-        match deref.as_ref() {
-          StackEntry::Offset { source, offset } => {
-            match source.as_ref() {
-              StackEntry::ArrayItem { .. } => {
-                format!(
-                  "{}.f_{}",
-                  self.format_stack_entry(source, function),
-                  self.format_stack_entry(offset, function)
-                )
-              }
-              StackEntry::Ref(rf) => {
-                format!(
-                  "{}->f_{}",
-                  self.format_stack_entry(rf, function),
-                  self.format_stack_entry(offset, function)
-                )
-              }
-              _ => {
-                format!(
-                  "{}->f_{}",
-                  self.format_stack_entry(source, function),
-                  self.format_stack_entry(offset, function)
-                )
-              }
-            }
-          }
-          _ => format!("*({})", self.format_stack_entry(deref, function))
-        }
+        format!("*{}", self.format_stack_entry(deref, function))
       }
       StackEntry::Ref(rf) => format!("&{}", self.format_stack_entry(rf, function)),
       StackEntry::CatchValue => todo!(),
@@ -369,7 +354,10 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
     if local < function.params {
       format!("parameter_{local}")
     } else {
-      format!("local_{}", local - function.params)
+      format!(
+        "local_{}",
+        local - function.params - 2 /* return address and stack frame */
+      )
     }
   }
 }

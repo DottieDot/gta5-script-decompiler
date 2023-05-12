@@ -359,16 +359,16 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             [after] if self.frontiers[cond_jmp].contains(&after) => {
               ControlFlow::IfElse {
                 node,
-                then: Box::new(self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
-                els: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
+                then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
+                els: Box::new(self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
                 after: Some(Box::new(self.node_control_flow(after, parents)))
               }
             }
             [] | [_] => {
               ControlFlow::IfElse {
                 node,
-                then: Box::new(self.node_control_flow(*cond_jmp, parents)),
-                els: Box::new(self.node_control_flow(*cond_flow, parents)),
+                then: Box::new(self.node_control_flow(*cond_flow, parents)),
+                els: Box::new(self.node_control_flow(*cond_jmp, parents)),
                 after: None
               }
             }

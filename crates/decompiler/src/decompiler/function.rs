@@ -486,7 +486,23 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                 statement:    Statement::Continue
               })
             }
-            ControlFlow::Switch { cases, .. } => todo!()
+            ControlFlow::Switch { cases, .. } => {
+              statements.push(StatementInfo {
+                instructions: &self.instructions[index..=index],
+                statement:    Statement::Switch {
+                  condition: stack.pop()?,
+                  cases:     cases
+                    .iter()
+                    .map(|(body, cases)| {
+                      Ok((
+                        self.decompile_node(script, functions, body, stack.clone())?,
+                        cases.clone()
+                      ))
+                    })
+                    .collect::<Result<_, _>>()?
+                }
+              })
+            }
           };
         }
         Instruction::FunctionCall { location } => {

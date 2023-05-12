@@ -1,4 +1,7 @@
-use crate::{decompiler::stack_entry::StackEntry, disassembler::InstructionInfo};
+use crate::{
+  decompiler::{function_graph::CaseValue, stack_entry::StackEntry},
+  disassembler::InstructionInfo
+};
 
 #[derive(Debug)]
 pub enum Statement<'i, 'b> {
@@ -35,7 +38,8 @@ pub enum Statement<'i, 'b> {
     body:      Vec<StatementInfo<'i, 'b>>
   },
   Switch {
-    condition: StackEntry
+    condition: StackEntry,
+    cases:     Vec<(Vec<StatementInfo<'i, 'b>>, Vec<CaseValue>)>
   },
   Break,
   Continue

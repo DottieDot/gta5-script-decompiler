@@ -20,10 +20,6 @@ impl<'p, T> ParentedList<'p, T> {
       next: self.last.as_ref()
     }
   }
-
-  pub fn is_empty(&self) -> bool {
-    self.last.is_none()
-  }
 }
 
 impl<'p, T> Default for ParentedList<'p, T> {

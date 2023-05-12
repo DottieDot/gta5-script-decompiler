@@ -1,4 +1,5 @@
 use std::{
+  cmp::Ordering,
   collections::{HashMap, HashSet, LinkedList},
   fmt::Debug,
   ops::Sub
@@ -14,7 +15,7 @@ use petgraph::{
 };
 
 use crate::{
-  common::ParentedList,
+  common::{bubble_sort_by, ParentedList},
   disassembler::{Instruction, InstructionInfo, SwitchCase},
   formatters::AssemblyFormatter
 };
@@ -312,70 +313,70 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
 
     match (&dominated_edges[..], &frontier_edges[..]) {
       (
-        [(a, EdgeType::ConditionalJump), (b, EdgeType::ConditionalFlow)]
-        | [(a, EdgeType::ConditionalFlow), (b, EdgeType::ConditionalJump)],
+        [(cond_jmp, EdgeType::ConditionalJump), (cond_flow, EdgeType::ConditionalFlow)]
+        | [(cond_flow, EdgeType::ConditionalFlow), (cond_jmp, EdgeType::ConditionalJump)],
         _
       ) => {
-        if self.frontiers[a].contains(&node) {
+        if self.frontiers[cond_jmp].contains(&node) {
           ControlFlow::WhileLoop {
             node,
             body: Box::new(
-              self.node_control_flow(*a, parents.with_appended(FlowParentType::Loop { node, after: Some(*b) }))
+              self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::Loop { node, after: Some(*cond_flow) }))
             ),
-            after: Some(Box::new(self.node_control_flow(*b, parents)))
+            after: Some(Box::new(self.node_control_flow(*cond_flow, parents)))
           }
-        } else if self.frontiers[b].contains(&node) {
+        } else if self.frontiers[cond_flow].contains(&node) {
           ControlFlow::WhileLoop {
             node,
             body: Box::new(
-              self.node_control_flow(*b, parents.with_appended(FlowParentType::Loop{ node, after: Some(*b)}))
+              self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::Loop{ node, after: Some(*cond_flow)}))
             ),
-            after: Some(Box::new(self.node_control_flow(*a, parents)))
+            after: Some(Box::new(self.node_control_flow(*cond_jmp, parents)))
           }
-        } else if self.is_and_or_node(*a) && self.frontiers[a].contains(b) {
+        } else if self.is_and_or_node(*cond_jmp) && self.frontiers[cond_jmp].contains(cond_flow) {
           ControlFlow::AndOr {
             node,
-            with: Box::new(self.node_control_flow(*a, parents)),
-            after: Box::new(self.node_control_flow(*b, parents))
+            with: Box::new(self.node_control_flow(*cond_jmp, parents)),
+            after: Box::new(self.node_control_flow(*cond_flow, parents))
           }
-        } else if self.is_and_or_node(*b) && self.frontiers[b].contains(a) {
+        } else if self.is_and_or_node(*cond_flow) && self.frontiers[cond_flow].contains(cond_jmp) {
           ControlFlow::AndOr {
             node,
-            with: Box::new(self.node_control_flow(*b, parents)),
-            after: Box::new(self.node_control_flow(*a, parents))
+            with: Box::new(self.node_control_flow(*cond_flow, parents)),
+            after: Box::new(self.node_control_flow(*cond_jmp, parents))
           }
-        } else if self.frontiers[a].contains(b) {
+        } else if self.frontiers[cond_jmp].contains(cond_flow) {
           ControlFlow::If {
             node,
-            then: Box::new(self.node_control_flow(*a, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*b) }))),
-            after: Some(Box::new(self.node_control_flow(*b, parents)))
+            then: Box::new(self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_flow) }))),
+            after: Some(Box::new(self.node_control_flow(*cond_flow, parents)))
           }
-        } else if self.frontiers[b].contains(a) {
+        } else if self.frontiers[cond_flow].contains(cond_jmp) {
           ControlFlow::If {
             node,
-            then: Box::new(self.node_control_flow(*b, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*a) }))),
-            after: Some(Box::new(self.node_control_flow(*a, parents)))
+            then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_jmp) }))),
+            after: Some(Box::new(self.node_control_flow(*cond_jmp, parents)))
           }
         } else {
-          let intersect = self.frontiers[a]
-            .intersection(&self.frontiers[b])
+          let intersect = self.frontiers[cond_jmp]
+            .intersection(&self.frontiers[cond_flow])
             .copied()
             .collect::<Vec<_>>();
 
           match intersect[..] {
-            [after] if !self.frontiers[a].contains(&after) => {
+            [after] if !self.frontiers[cond_jmp].contains(&after) => {
               ControlFlow::IfElse {
                 node,
-                then: Box::new(self.node_control_flow(*a, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
-                els: Box::new(self.node_control_flow(*b, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
+                then: Box::new(self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
+                els: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
                 after: Some(Box::new(self.node_control_flow(after, parents)))
               }
             }
             [] | [_] => {
               ControlFlow::IfElse {
                 node,
-                then: Box::new(self.node_control_flow(*a, parents)),
-                els: Box::new(self.node_control_flow(*b, parents)),
+                then: Box::new(self.node_control_flow(*cond_jmp, parents)),
+                els: Box::new(self.node_control_flow(*cond_flow, parents)),
                 after: None
               }
             }
@@ -402,12 +403,12 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         }
       }
       ([.., (_, EdgeType::Case(..))] | [(_, EdgeType::Case(..)), ..], []) => {
-        let grouped = dominated_edges.iter().group_by(|(dest, _)| dest);
+        let grouped = dominated_edges.iter().rev().group_by(|(dest, _)| *dest);
 
-        let cases = grouped
+        let mut cases = grouped
           .into_iter()
           .map(|(key, group)| {
-            (*key, group.map(|(_, e)| match e {
+            (key, group.map(|(_, e)| match e {
               EdgeType::ConditionalFlow => CaseValue::Default,
               EdgeType::Case(value) => CaseValue::Value(*value),
               _ => panic!("unexpected switch flow")
@@ -415,6 +416,23 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           })
           .collect_vec();
 
+        bubble_sort_by(&mut cases, |(a, _), (b, _)| {
+          let a_frontiers_b = self.frontiers
+            .get(a)
+            .map(|front| front.contains(&b))
+            .unwrap_or_default();
+          let b_frontiers_a = self.frontiers
+            .get(b)
+            .map(|front| front.contains(&a))
+            .unwrap_or_default();
+          match (a_frontiers_b, b_frontiers_a) {
+            (true, true) => panic!("circular switch case"),
+            (false, false) => Ordering::Equal,
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater
+          }
+        });
+        
         let case_set = cases.iter().map(|(index, _)| *index).collect::<HashSet<_>>();
 
         let mut case_frontiers = cases

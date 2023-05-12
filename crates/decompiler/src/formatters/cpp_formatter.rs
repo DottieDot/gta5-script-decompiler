@@ -4,7 +4,7 @@ use itertools::Itertools;
 
 use crate::decompiler::{
   decompiled::{DecompiledFunction, Statement, StatementInfo},
-  BinaryOperator, Function, StackEntry, Type, UnaryOperator
+  BinaryOperator, CaseValue, Function, StackEntry, Type, UnaryOperator
 };
 
 use super::code_builder::CodeBuilder;
@@ -147,7 +147,30 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           })
           .line("}");
       }
-      Statement::Switch { .. } => todo!(),
+      Statement::Switch { condition, cases } => {
+        builder
+          .line(&format!(
+            "switch ({})",
+            self.format_stack_entry(condition, function)
+          ))
+          .line("{")
+          .branch(|builder| {
+            for (body, case_values) in cases {
+              for case in case_values {
+                match case {
+                  CaseValue::Value(val) => builder.line(&format!("case {val}:")),
+                  CaseValue::Default => builder.line("default:")
+                };
+              }
+              builder.branch(|builder| {
+                for statement in body {
+                  self.write_statement(statement, function, builder);
+                }
+              });
+            }
+          })
+          .line("}");
+      }
       Statement::Break => {
         builder.line("break;");
       }

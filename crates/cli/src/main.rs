@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
   // - 6294 (switch)
   // - 686 (disconnected loop)
   // TODO:
-  let func = &functions[2352];
+  let func = &functions[13556];
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,

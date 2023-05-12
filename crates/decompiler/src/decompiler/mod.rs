@@ -15,6 +15,7 @@ mod stack;
 mod stack_entry;
 
 pub use function::*;
+pub use function_graph::CaseValue;
 pub use stack_entry::*;
 
 fn find_functions<'bytes, 'input: 'bytes>(

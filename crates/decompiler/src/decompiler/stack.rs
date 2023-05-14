@@ -369,8 +369,15 @@ impl Stack {
   }
 
   pub fn push_function_call(&mut self, function: &Function) -> Result<(), InvalidStackError> {
-    let mut args = self.pop_n(function.parameters.len())?;
+    let mut args: Vec<StackEntryInfo> = self.pop_n(function.parameters.len())?;
     args.reverse();
+
+    for arg in &args {
+      for param in &function.parameters {
+        LinkedValueType::link(&arg.ty, param);
+      }
+    }
+
     self.stack.push_back(StackEntryInfo {
       entry: StackEntry::FunctionCallResult {
         args,
@@ -378,7 +385,7 @@ impl Stack {
         return_values: function
           .returns
           .as_ref()
-          .map(|r| (**r).borrow().size())
+          .map(|r| r.borrow().size())
           .unwrap_or_default()
       },
       ty:    function
@@ -434,7 +441,7 @@ impl Stack {
   pub fn pop_n(&mut self, mut n: usize) -> Result<Vec<StackEntryInfo>, InvalidStackError> {
     let mut result = Vec::with_capacity(n);
     while n > 0 {
-      let back = self.back()?;
+      let back = self.get_back()?;
 
       if back.entry.size() > n {
         result.push(self.pop()?);
@@ -447,6 +454,29 @@ impl Stack {
     }
 
     Ok(result)
+  }
+
+  pub fn nth_back(&mut self, n: usize) -> Result<StackEntryInfo, InvalidStackError> {
+    let back = self
+      .stack
+      .iter()
+      .rev()
+      .skip(n)
+      .next()
+      .ok_or(InvalidStackError)?
+      .clone();
+
+    if back.entry.size() > 1 {
+      let (last, rest) = back.split_off();
+
+      if let Some(rest) = rest {
+        self.stack.push_back(rest);
+      }
+
+      Ok(last)
+    } else {
+      Ok(back)
+    }
   }
 
   pub fn try_make_bitwise_logical(&mut self) -> Result<(), InvalidStackError> {
@@ -489,7 +519,7 @@ impl Stack {
     }
   }
 
-  fn back(&self) -> Result<&StackEntryInfo, InvalidStackError> {
+  fn get_back(&self) -> Result<&StackEntryInfo, InvalidStackError> {
     self.stack.back().ok_or(InvalidStackError)
   }
 }

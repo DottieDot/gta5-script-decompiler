@@ -47,9 +47,16 @@ pub enum LinkedValueType {
 
 impl LinkedValueType {
   pub fn link(a: &Rc<RefCell<LinkedValueType>>, b: &Rc<RefCell<LinkedValueType>>) {
-    if a.borrow().get_concrete().confidence > b.borrow().get_concrete().confidence {
+    if Rc::ptr_eq(&Self::get_concrete_ptr(a), &Self::get_concrete_ptr(b)) {
+      return;
+    }
+
+    let a_concrete = a.borrow().get_concrete();
+    let b_concrete = b.borrow().get_concrete();
+
+    if a_concrete.confidence > b_concrete.confidence {
       *b.borrow_mut() = LinkedValueType::Redirect(a.clone())
-    } else if a.borrow().get_concrete().confidence < b.borrow().get_concrete().confidence {
+    } else {
       *a.borrow_mut() = LinkedValueType::Redirect(b.clone())
     }
   }
@@ -112,21 +119,21 @@ impl LinkedValueType {
       LinkedValueType::Type(t) => {
         if let ValueType::Struct { fields } = &mut t.ty {
           if fields.len() <= field {
-            fields.resize(
-              field + 1,
+            fields.resize_with(field + 1, || {
               Self::new_primitive(Primitives::Unknown).make_shared()
-            );
+            });
           }
           fields[field].clone()
         } else {
-          let fields = vec![Self::new_primitive(Primitives::Unknown).make_shared(); field + 1];
+          let fields = (0..field + 1)
+            .map(|_| Self::new_primitive(Primitives::Unknown).make_shared())
+            .collect::<Vec<_>>();
+          let field = fields[field].clone();
           *t = ValueTypeInfo {
-            ty:         ValueType::Struct {
-              fields: fields.clone()
-            },
+            ty:         ValueType::Struct { fields },
             confidence: Confidence::Medium
           };
-          fields[field].clone()
+          field
         }
       }
       LinkedValueType::Redirect(r) => r.borrow_mut().struct_field(field)
@@ -162,14 +169,19 @@ impl LinkedValueType {
       LinkedValueType::Type(t) => {
         if let ValueType::Struct { fields } = &mut t.ty {
           if fields.len() <= size {
-            fields.resize(size, Self::new_primitive(Primitives::Unknown).make_shared())
+            fields.resize_with(size, || {
+              Self::new_primitive(Primitives::Unknown).make_shared()
+            })
           } else {
-            panic!("Struct sized down???")
+            // TODO: func_605
+            // panic!("Struct sized down???")
           }
         } else {
           *t = ValueTypeInfo {
             ty:         ValueType::Struct {
-              fields: vec![Self::new_primitive(Primitives::Unknown).make_shared(); size]
+              fields: (0..size)
+                .map(|_| Self::new_primitive(Primitives::Unknown).make_shared())
+                .collect()
             },
             confidence: Confidence::Medium
           }
@@ -210,6 +222,14 @@ impl LinkedValueType {
     match self {
       LinkedValueType::Type(t) => t.clone(),
       LinkedValueType::Redirect(r) => r.borrow().get_concrete().clone()
+    }
+  }
+
+  fn get_concrete_ptr(ty: &Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
+    let rf: &Self = &ty.borrow();
+    match rf {
+      LinkedValueType::Type(_) => ty.clone(),
+      LinkedValueType::Redirect(r) => Self::get_concrete_ptr(r)
     }
   }
 }

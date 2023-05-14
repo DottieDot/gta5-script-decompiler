@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, println};
 
 use gta5_script_decompiler::{
   decompiler::{functions, ScriptGlobals, ScriptStatics},
@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
   // - 6294 (switch)
   // - 686 (disconnected loop)
   // TODO:
-  let func = &functions[2263];
+  let func = &functions[812];
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,
@@ -78,12 +78,38 @@ fn main() -> anyhow::Result<()> {
     }
   */
 
+  // {
+  //   let func = &functions[812];
+  //   func.decompile(&script, &function_map, &statics, &mut globals)?;
+  // }
+  // {
+  //   let func = &functions[815];
+  //   func.decompile(&script, &function_map, &statics, &mut globals)?;
+  // }
+
   let cpp_formatter = CppFormatter::new(&function_map);
-  let decompiled = func.decompile(&script, &function_map, &statics, &mut globals)?;
-  let formatted = cpp_formatter.format_function(&decompiled);
+  // let decompiled = func.decompile(&script, &function_map, &statics, &mut globals)?;
+  // let formatted = cpp_formatter.format_function(&decompiled);
+
+  let decompiled = functions[645..714]
+    .iter()
+    .map(|func| {
+      println!("{}", func.name);
+      func
+        .decompile(&script, &function_map, &statics, &mut globals)
+        .unwrap()
+    })
+    .collect::<Vec<_>>();
+  let code = decompiled
+    .iter()
+    .map(|func| cpp_formatter.format_function(func))
+    .collect::<Vec<_>>()
+    .join("\n");
 
   //fs::write("output.rs", format!("{decompiled:#?}"))?;
-  fs::write("output.cpp", formatted)?;
+  fs::write("output.cpp", code)?;
+
+  // DEMO func_680
 
   Ok(())
 }

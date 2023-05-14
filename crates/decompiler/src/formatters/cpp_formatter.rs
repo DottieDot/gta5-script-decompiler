@@ -285,7 +285,10 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       StackEntry::Static(stat) => format!("static_{stat}"),
       StackEntry::Global(global) => format!("global_{global}"),
       StackEntry::Deref(deref) => {
-        format!("*({})", self.format_stack_entry(deref, function))
+        match &deref.entry {
+          StackEntry::Ref(rf) => self.format_stack_entry(rf, function),
+          _ => format!("*({})", self.format_stack_entry(deref, function))
+        }
       }
       StackEntry::Ref(rf) => format!("&{}", self.format_stack_entry(rf, function)),
       StackEntry::CatchValue => todo!(),

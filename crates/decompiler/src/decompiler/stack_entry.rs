@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use thiserror::Error;
 
-use super::{LinkedValueType, Primitives};
+use super::LinkedValueType;
 
 #[derive(Clone, Debug)]
 pub enum StackEntry {
@@ -125,45 +125,6 @@ impl StackEntry {
       Self::FunctionCallResult { return_values, .. } => *return_values,
       Self::NativeCallResult { return_values, .. } => *return_values,
       _ => 1
-    }
-  }
-
-  pub fn split_off(mut self) -> (Self, Option<Self>) {
-    // Avoid unnecessary clone
-    if self.size() == 1 {
-      return (self, None);
-    }
-
-    let cloned = self.clone();
-    match &mut self {
-      Self::Struct { origin, size } => {
-        size.checked_sub(1).expect("corrupted stack entry");
-        let field = Self::StructField {
-          source: origin.clone(),
-          field:  *size
-        };
-        (field, Some(self))
-      }
-      Self::ResultStruct { values } => {
-        values.pop().expect("corrupted stack entry");
-        let field = Self::StructField {
-          source: Box::new(todo!()),
-          field:  values.len()
-        };
-        (field, Some(self))
-      }
-      Self::FunctionCallResult { return_values, .. }
-      | Self::NativeCallResult { return_values, .. } => {
-        let field = Self::StructField {
-          source: Box::new(todo!()),
-          field:  return_values.checked_sub(1).expect("corrupted stack entry")
-        };
-
-        *return_values -= 1;
-
-        (field, if *return_values > 0 { Some(self) } else { None })
-      }
-      _ => panic!("StackEntry::size(&self) is not implemented correctly")
     }
   }
 }

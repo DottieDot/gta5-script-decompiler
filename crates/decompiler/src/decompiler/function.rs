@@ -14,7 +14,8 @@ use super::{
   decompiled::{DecompiledFunction, StatementInfo},
   function_graph::{ControlFlow, FunctionGraph},
   stack::{InvalidStackError, Stack},
-  Confidence, LinkedValueType, Primitives, ScriptGlobals, ScriptStatics, ValueType, ValueTypeInfo
+  Confidence, LinkedValueType, Primitives, ScriptGlobals, ScriptStatics, StackEntry,
+  StackEntryInfo, ValueType, ValueTypeInfo
 };
 
 pub struct FunctionInfo<'input, 'bytes> {
@@ -619,9 +620,55 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             }
           })
         }
-        Instruction::StoreRev => todo!(),
+        Instruction::StoreRev => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              source:      stack.nth_back(0)?,
+              destination: {
+                let dest = stack.nth_back(1)?;
+                let ty = dest.ty.borrow_mut().ref_type();
+                StackEntryInfo {
+                  entry: StackEntry::Deref(Box::new(dest)),
+                  ty
+                }
+              }
+            }
+          })
+        }
         Instruction::LoadN => stack.push_load_n()?,
-        Instruction::StoreN => todo!(),
+        Instruction::StoreN => {
+          stack.push_deref()?;
+          let dest = stack.pop()?;
+          let n = stack.pop()?;
+          let StackEntry::Int(n) = n.entry else {
+            Err(InvalidStackError)?
+          };
+
+          let mut popped = stack.pop_n(n as usize)?;
+          let value = if popped.len() > 1 {
+            StackEntryInfo {
+              ty:    LinkedValueType::Type(ValueTypeInfo {
+                ty:         ValueType::Struct {
+                  fields: popped.iter().map(|v| v.ty.clone()).collect()
+                },
+                confidence: Confidence::High
+              })
+              .make_shared(),
+              entry: StackEntry::ResultStruct { values: popped }
+            }
+          } else {
+            popped.swap_remove(0)
+          };
+
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::Assign {
+              source:      value,
+              destination: dest
+            }
+          })
+        }
         Instruction::ArrayU8 { item_size } => {
           stack.push_array_item(*item_size as usize)?;
           stack.push_reference()?
@@ -1129,12 +1176,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Statement::Return { values } => {
           match &values[..] {
             [value] => {
-              self
-                .returns
-                .as_ref()
-                .unwrap()
-                .borrow_mut()
-                .hint(value.ty.borrow().get_concrete())
+              LinkedValueType::link(self.returns.as_ref().unwrap(), &value.ty);
             }
             [] => {}
             values => {

@@ -279,6 +279,44 @@ impl Stack {
     Ok(result)
   }
 
+  pub fn try_make_bitwise_logical(&mut self) -> Result<(), InvalidStackError> {
+    let last = self.pop()?;
+    match last {
+      StackEntry::BinaryOperator {
+        lhs,
+        rhs,
+        ty,
+        op: BinaryOperator::BitwiseAnd
+      } => {
+        self.stack.push_back(StackEntry::BinaryOperator {
+          lhs,
+          rhs,
+          ty,
+          op: BinaryOperator::LogicalAnd
+        });
+        Ok(())
+      }
+      StackEntry::BinaryOperator {
+        lhs,
+        rhs,
+        ty,
+        op: BinaryOperator::BitwiseOr
+      } => {
+        self.stack.push_back(StackEntry::BinaryOperator {
+          lhs,
+          rhs,
+          ty,
+          op: BinaryOperator::LogicalOr
+        });
+        Ok(())
+      }
+      _ => {
+        self.stack.push_back(last);
+        Ok(())
+      }
+    }
+  }
+
   fn back(&self) -> Result<&StackEntry, InvalidStackError> {
     self.stack.back().ok_or(InvalidStackError)
   }

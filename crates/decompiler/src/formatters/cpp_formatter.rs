@@ -197,7 +197,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       StackEntry::Int(i) => i.to_string(),
       StackEntry::Float(f) => f.to_string(),
       StackEntry::String(usize) => format!("STRING({usize})"),
-      StackEntry::Struct { values } => {
+      StackEntry::ResultStruct { values } => {
         let values = values
           .iter()
           .map(|se| self.format_stack_entry(se, function))
@@ -219,7 +219,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         match source.as_ref() {
           StackEntry::Ref(rf) => {
             format!(
-              "{}->f_{}",
+              "{}.f_{}",
               self.format_stack_entry(rf, function),
               self.format_stack_entry(offset, function)
             )
@@ -252,7 +252,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       StackEntry::Static(stat) => format!("static_{stat}"),
       StackEntry::Global(global) => format!("global_{global}"),
       StackEntry::Deref(deref) => {
-        format!("*{}", self.format_stack_entry(deref, function))
+        format!("*({})", self.format_stack_entry(deref, function))
       }
       StackEntry::Ref(rf) => format!("&{}", self.format_stack_entry(rf, function)),
       StackEntry::CatchValue => todo!(),
@@ -273,6 +273,100 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           BinaryOperator::GreaterOrEqual => ">=",
           BinaryOperator::LowerThan => "<",
           BinaryOperator::LowerOrEqual => "<=",
+          BinaryOperator::LogicalAnd => {
+            match (lhs.as_ref(), rhs.as_ref()) {
+              (
+                StackEntry::BinaryOperator {
+                  op: BinaryOperator::LogicalOr,
+                  ..
+                },
+                StackEntry::BinaryOperator {
+                  op: BinaryOperator::LogicalOr,
+                  ..
+                }
+              ) => {
+                return format!(
+                  "({}) && ({})",
+                  self.format_stack_entry(lhs, function),
+                  self.format_stack_entry(rhs, function)
+                );
+              }
+              (
+                StackEntry::BinaryOperator {
+                  op: BinaryOperator::LogicalOr,
+                  ..
+                },
+                _
+              ) => {
+                return format!(
+                  "({}) && {}",
+                  self.format_stack_entry(lhs, function),
+                  self.format_stack_entry(rhs, function)
+                );
+              }
+              (
+                _,
+                StackEntry::BinaryOperator {
+                  op: BinaryOperator::LogicalOr,
+                  ..
+                }
+              ) => {
+                return format!(
+                  "{} && ({})",
+                  self.format_stack_entry(lhs, function),
+                  self.format_stack_entry(rhs, function)
+                );
+              }
+              _ => "&&"
+            }
+          }
+          BinaryOperator::LogicalOr => {
+            match (lhs.as_ref(), rhs.as_ref()) {
+              (
+                StackEntry::BinaryOperator {
+                  op: BinaryOperator::LogicalAnd,
+                  ..
+                },
+                StackEntry::BinaryOperator {
+                  op: BinaryOperator::LogicalAnd,
+                  ..
+                }
+              ) => {
+                return format!(
+                  "({}) || ({})",
+                  self.format_stack_entry(lhs, function),
+                  self.format_stack_entry(rhs, function)
+                );
+              }
+              (
+                StackEntry::BinaryOperator {
+                  op: BinaryOperator::LogicalAnd,
+                  ..
+                },
+                _
+              ) => {
+                return format!(
+                  "({}) || {}",
+                  self.format_stack_entry(lhs, function),
+                  self.format_stack_entry(rhs, function)
+                );
+              }
+              (
+                _,
+                StackEntry::BinaryOperator {
+                  op: BinaryOperator::LogicalAnd,
+                  ..
+                }
+              ) => {
+                return format!(
+                  "{} || ({})",
+                  self.format_stack_entry(lhs, function),
+                  self.format_stack_entry(rhs, function)
+                );
+              }
+              _ => "||"
+            }
+          }
           BinaryOperator::BitTest => {
             return format!(
               "BitTest({lhs}, {rhs})",
@@ -294,7 +388,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           UnaryOperator::Negate => "-"
         };
 
-        format!("{op}{}", self.format_stack_entry(lhs, function))
+        format!("{op}({})", self.format_stack_entry(lhs, function))
       }
       StackEntry::Cast { source, ty } => {
         let ty = match ty {

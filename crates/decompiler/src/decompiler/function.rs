@@ -59,7 +59,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   ) -> Result<DecompiledFunction<'input, 'bytes>, InvalidStackError> {
     let flow = self.graph.reconstruct_control_flow();
 
-    let statements = self.decompile_node(script, functions, &flow, Default::default())?;
+    let (statements, _) = self.decompile_node(script, functions, &flow, Default::default())?;
 
     Ok(DecompiledFunction {
       name: self.name.clone(),
@@ -74,7 +74,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     functions: &HashMap<usize, Function>,
     flow: &ControlFlow,
     mut stack: Stack
-  ) -> Result<Vec<StatementInfo<'input, 'bytes>>, InvalidStackError> {
+  ) -> Result<(Vec<StatementInfo<'input, 'bytes>>, Stack), InvalidStackError> {
     let mut statements: Vec<StatementInfo> = Default::default();
     let node = self.graph.get_node(flow.node()).unwrap();
 
@@ -296,7 +296,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::MultiplyU8 { value } => {
           stack.push_const_int_binary_operator(BinaryOperator::Multiply, *value as i64)?
         }
-        Instruction::Offset => stack.push_offset()?,
+        Instruction::Offset => {
+          stack.push_offset()?;
+          stack.push_reference()?
+        }
         Instruction::OffsetU8 { offset } => {
           stack.push_const_offset(*offset as i64)?;
           stack.push_reference()?
@@ -447,7 +450,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                 instructions: &self.instructions[index..=index],
                 statement:    Statement::If {
                   condition: stack.pop()?,
-                  then:      self.decompile_node(script, functions, then, stack.clone())?
+                  then:      self
+                    .decompile_node(script, functions, then, stack.clone())?
+                    .0
                 }
               })
             }
@@ -456,33 +461,34 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                 instructions: &self.instructions[index..=index],
                 statement:    Statement::IfElse {
                   condition: stack.pop()?,
-                  then:      self.decompile_node(script, functions, then, stack.clone())?,
-                  els:       self.decompile_node(script, functions, els, stack.clone())?
+                  then:      self
+                    .decompile_node(script, functions, then, stack.clone())?
+                    .0,
+                  els:       self
+                    .decompile_node(script, functions, els, stack.clone())?
+                    .0
                 }
               })
             }
             ControlFlow::Leaf { .. } | ControlFlow::Flow { .. } => {}
-            ControlFlow::AndOr { with, after, .. } => {
-              let mut stack = vec![after, with];
-              while let Some(current) = stack.pop() {
-                let current_node = current.node();
-                match current.as_ref() {
-                  ControlFlow::AndOr { with, after, .. } => todo!(),
-                  ControlFlow::Leaf { .. } => todo!(),
-                  ControlFlow::If { .. }
-                  | ControlFlow::IfElse { .. }
-                  | ControlFlow::WhileLoop { .. } => todo!(),
-                  _ => panic!("unexpected node in AndOr chain")
-                };
-              }
-              todo!()
+            ControlFlow::AndOr { with, .. } => {
+              stack.pop()?;
+              match with.as_ref() {
+                ControlFlow::AndOr { .. } | ControlFlow::Leaf { .. } => {
+                  stack = self.decompile_node(script, functions, with, stack)?.1;
+                }
+                _ => panic!("unexpected node in AndOr chain")
+              };
+              stack.try_make_bitwise_logical()?;
             }
             ControlFlow::WhileLoop { body, .. } => {
               statements.push(StatementInfo {
                 instructions: &self.instructions[index..=index],
                 statement:    Statement::WhileLoop {
                   condition: stack.pop()?,
-                  body:      self.decompile_node(script, functions, body, stack.clone())?
+                  body:      self
+                    .decompile_node(script, functions, body, stack.clone())?
+                    .0
                 }
               })
             }
@@ -507,7 +513,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                     .iter()
                     .map(|(body, cases)| {
                       Ok((
-                        self.decompile_node(script, functions, body, stack.clone())?,
+                        self
+                          .decompile_node(script, functions, body, stack.clone())?
+                          .0,
                         cases.clone()
                       ))
                     })
@@ -615,9 +623,12 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     }
 
     if let Some(after) = flow.after() {
-      statements.extend(self.decompile_node(script, functions, after, stack)?);
+      let (new_statements, new_stack) =
+        self.decompile_node(script, functions, after, stack.clone())?;
+      statements.extend(new_statements);
+      stack = new_stack;
     }
 
-    Ok(statements)
+    Ok((statements, stack))
   }
 }

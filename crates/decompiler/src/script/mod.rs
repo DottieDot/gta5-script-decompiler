@@ -7,7 +7,8 @@ pub struct ScriptInfo {
   pub name:            String,
   pub name_hash:       u32,
   pub globals_version: u32,
-  pub parameter_count: u32
+  pub parameter_count: u32,
+  pub static_count:    u32
 }
 
 #[derive(Debug)]

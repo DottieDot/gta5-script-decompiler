@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, println, rc::Rc};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Primitives {
@@ -46,6 +46,14 @@ pub enum LinkedValueType {
 }
 
 impl LinkedValueType {
+  pub fn link(a: &Rc<RefCell<LinkedValueType>>, b: &Rc<RefCell<LinkedValueType>>) {
+    if a.borrow().get_concrete().confidence > b.borrow().get_concrete().confidence {
+      *b.borrow_mut() = LinkedValueType::Redirect(a.clone())
+    } else if a.borrow().get_concrete().confidence < b.borrow().get_concrete().confidence {
+      *a.borrow_mut() = LinkedValueType::Redirect(b.clone())
+    }
+  }
+
   pub fn new_primitive(primitive: Primitives) -> Self {
     Self::Type(ValueTypeInfo {
       ty:         ValueType::Primitive(primitive),
@@ -146,6 +154,10 @@ impl LinkedValueType {
   }
 
   pub fn struct_size(&mut self, size: usize) {
+    if size <= 1 {
+      return;
+    }
+
     match self {
       LinkedValueType::Type(t) => {
         if let ValueType::Struct { fields } = &mut t.ty {
@@ -172,6 +184,7 @@ impl LinkedValueType {
       LinkedValueType::Type(t) => {
         if ty.confidence > t.confidence {
           t.ty = ty.ty;
+          t.confidence = ty.confidence;
         }
       }
       LinkedValueType::Redirect(r) => r.borrow_mut().hint(ty)

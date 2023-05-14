@@ -26,6 +26,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       .line(&self.create_signature(function))
       .line("{")
       .branch(|builder| {
+        self.declare_locals(function, builder);
         for statement in &function.statements {
           self.write_statement(statement, function, builder, false);
         }
@@ -53,6 +54,18 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       function.name,
       args.join(", ")
     )
+  }
+
+  fn declare_locals(&self, function: &DecompiledFunction, builder: &mut CodeBuilder) {
+    let mut iter = function.locals.iter().enumerate();
+    while let Some((i, p)) = iter.next() {
+      builder.line(&format!("{} local_{i};", self.format_type(&p.borrow())));
+      let _ = iter.advance_by(p.borrow().size() - 1);
+    }
+
+    if !function.locals.is_empty() {
+      builder.line("");
+    }
   }
 
   fn write_statement(
@@ -148,9 +161,10 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           }] => self.write_statement(st, function, builder, true),
           _ => {
             builder
+              .line("else")
               .line("{")
               .branch(|builder| {
-                for statement in then {
+                for statement in els {
                   self.write_statement(statement, function, builder, false);
                 }
               })

@@ -60,7 +60,8 @@ pub fn parse_ysc(bytes: &[u8]) -> Result<Script, ParseYscError> {
       name:            header.script_name,
       name_hash:       header.name_hash,
       globals_version: header.globals_version,
-      parameter_count: header.parameter_count
+      parameter_count: header.parameter_count,
+      static_count:    header.statics_count
     },
     code,
     strings,

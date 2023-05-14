@@ -11,12 +11,16 @@ use self::{decompiled::DecompiledFunction, stack::InvalidStackError};
 pub mod decompiled;
 mod function;
 mod function_graph;
+mod script_globals;
+mod script_statics;
 mod stack;
 mod stack_entry;
 mod value_type;
 
 pub use function::*;
 pub use function_graph::CaseValue;
+pub use script_globals::*;
+pub use script_statics::*;
 pub use stack_entry::*;
 pub use value_type::*;
 
@@ -106,7 +110,9 @@ pub fn function_dot_string(
 pub fn decompile_function<'input: 'script, 'script>(
   instructions: &'input [InstructionInfo<'script>],
   script: &'script Script,
-  function: usize
+  function: usize,
+  statics: &ScriptStatics,
+  globals: &mut ScriptGlobals
 ) -> Result<DecompiledFunction<'input, 'script>, InvalidStackError> {
   let functions = find_functions(instructions);
   let function_map = functions
@@ -114,5 +120,5 @@ pub fn decompile_function<'input: 'script, 'script>(
     .into_iter()
     .map(|f| (f.location, f))
     .collect::<HashMap<_, _>>();
-  functions[function].decompile(script, &function_map)
+  functions[function].decompile(script, &function_map, statics, globals)
 }

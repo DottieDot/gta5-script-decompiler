@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, println, rc::Rc};
 
 use crate::{
   decompiler::{
@@ -14,7 +14,7 @@ use super::{
   decompiled::{DecompiledFunction, StatementInfo},
   function_graph::{ControlFlow, FunctionGraph},
   stack::{InvalidStackError, Stack},
-  Confidence, LinkedValueType, Primitives, ValueType, ValueTypeInfo
+  Confidence, LinkedValueType, Primitives, ScriptGlobals, ScriptStatics, ValueType, ValueTypeInfo
 };
 
 pub struct FunctionInfo<'input, 'bytes> {
@@ -105,18 +105,29 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   pub fn decompile(
     &self,
     script: &Script,
-    functions: &HashMap<usize, Function>
+    functions: &HashMap<usize, Function>,
+    statics: &ScriptStatics,
+    globals: &mut ScriptGlobals
   ) -> Result<DecompiledFunction<'input, 'bytes>, InvalidStackError> {
     let flow = self.graph.reconstruct_control_flow();
 
-    let (statements, _) = self.decompile_node(script, functions, &flow, Default::default())?;
+    let (statements, _) = self.decompile_node(
+      script,
+      functions,
+      &flow,
+      Default::default(),
+      statics,
+      globals
+    )?;
+
+    self.add_statement_types(&statements);
 
     Ok(DecompiledFunction {
-      name:       self.name.clone(),
-      params:     self.parameters.clone(),
-      returns:    self.returns.clone(),
-      locals:     self.locals.clone(),
-      statements: statements
+      name: self.name.clone(),
+      params: self.parameters.clone(),
+      returns: self.returns.clone(),
+      locals: self.locals.clone(),
+      statements
     })
   }
 
@@ -125,7 +136,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     script: &Script,
     functions: &HashMap<usize, Function>,
     flow: &ControlFlow,
-    mut stack: Stack
+    mut stack: Stack,
+    statics: &ScriptStatics,
+    globals: &mut ScriptGlobals
   ) -> Result<(Vec<StatementInfo<'input, 'bytes>>, Stack), InvalidStackError> {
     let mut statements: Vec<StatementInfo> = Default::default();
     let node = self.graph.get_node(flow.node()).unwrap();
@@ -589,36 +602,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         }
         Instruction::Enter { .. } => { /* SKIP */ }
         Instruction::Leave { return_count, .. } => {
-          let values = stack.pop_n(*return_count as usize)?;
-
-          match &values[..] {
-            [value] => {
-              self
-                .returns
-                .as_ref()
-                .unwrap()
-                .borrow_mut()
-                .hint(value.ty.borrow().get_concrete())
-            }
-            [] => {}
-            values => {
-              self
-                .returns
-                .as_ref()
-                .unwrap()
-                .borrow_mut()
-                .hint(ValueTypeInfo {
-                  ty:         ValueType::Struct {
-                    fields: values.iter().map(|v| v.ty.clone()).collect()
-                  },
-                  confidence: Confidence::High
-                })
-            }
-          }
-
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
-            statement:    Statement::Return { values }
+            statement:    Statement::Return {
+              values: stack.pop_n(*return_count as usize)?
+            }
           })
         }
         Instruction::Load => stack.push_deref()?,
@@ -671,16 +659,18 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           })
         }
         Instruction::StaticU8 { static_index } => {
-          stack.push_static(*static_index as usize);
+          stack.push_static(*static_index as usize, statics);
           stack.push_reference()?;
         }
-        Instruction::StaticU8Load { static_index } => stack.push_static(*static_index as usize),
+        Instruction::StaticU8Load { static_index } => {
+          stack.push_static(*static_index as usize, statics)
+        }
         Instruction::StaticU8Store { static_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
-                stack.push_static(*static_index as usize);
+                stack.push_static(*static_index as usize, statics);
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -777,16 +767,18 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           })
         }
         Instruction::StaticU16 { static_index } => {
-          stack.push_static(*static_index as usize);
+          stack.push_static(*static_index as usize, statics);
           stack.push_reference()?
         }
-        Instruction::StaticU16Load { static_index } => stack.push_static(*static_index as usize),
+        Instruction::StaticU16Load { static_index } => {
+          stack.push_static(*static_index as usize, statics)
+        }
         Instruction::StaticU16Store { static_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
-                stack.push_static(*static_index as usize);
+                stack.push_static(*static_index as usize, statics);
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -794,16 +786,18 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           })
         }
         Instruction::GlobalU16 { global_index } => {
-          stack.push_global(*global_index as usize);
+          stack.push_global(*global_index as usize, globals);
           stack.push_reference()?
         }
-        Instruction::GlobalU16Load { global_index } => stack.push_global(*global_index as usize),
+        Instruction::GlobalU16Load { global_index } => {
+          stack.push_global(*global_index as usize, globals)
+        }
         Instruction::GlobalU16Store { global_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
-                stack.push_global(*global_index as usize);
+                stack.push_global(*global_index as usize, globals);
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -914,7 +908,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                 statement:    Statement::If {
                   condition: stack.pop()?,
                   then:      self
-                    .decompile_node(script, functions, then, stack.clone())?
+                    .decompile_node(script, functions, then, stack.clone(), statics, globals)?
                     .0
                 }
               })
@@ -925,10 +919,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                 statement:    Statement::IfElse {
                   condition: stack.pop()?,
                   then:      self
-                    .decompile_node(script, functions, then, stack.clone())?
+                    .decompile_node(script, functions, then, stack.clone(), statics, globals)?
                     .0,
                   els:       self
-                    .decompile_node(script, functions, els, stack.clone())?
+                    .decompile_node(script, functions, els, stack.clone(), statics, globals)?
                     .0
                 }
               })
@@ -938,7 +932,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
               stack.pop()?;
               match with.as_ref() {
                 ControlFlow::AndOr { .. } | ControlFlow::Leaf { .. } => {
-                  stack = self.decompile_node(script, functions, with, stack)?.1;
+                  stack = self
+                    .decompile_node(script, functions, with, stack, statics, globals)?
+                    .1;
                 }
                 _ => panic!("unexpected node in AndOr chain")
               };
@@ -950,7 +946,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                 statement:    Statement::WhileLoop {
                   condition: stack.pop()?,
                   body:      self
-                    .decompile_node(script, functions, body, stack.clone())?
+                    .decompile_node(script, functions, body, stack.clone(), statics, globals)?
                     .0
                 }
               })
@@ -977,7 +973,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                     .map(|(body, cases)| {
                       Ok((
                         self
-                          .decompile_node(script, functions, body, stack.clone())?
+                          .decompile_node(script, functions, body, stack.clone(), statics, globals)?
                           .0,
                         cases.clone()
                       ))
@@ -1008,16 +1004,18 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           }
         }
         Instruction::StaticU24 { static_index } => {
-          stack.push_static(*static_index as usize);
+          stack.push_static(*static_index as usize, statics);
           stack.push_reference()?
         }
-        Instruction::StaticU24Load { static_index } => stack.push_static(*static_index as usize),
+        Instruction::StaticU24Load { static_index } => {
+          stack.push_static(*static_index as usize, statics)
+        }
         Instruction::StaticU24Store { static_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
-                stack.push_static(*static_index as usize);
+                stack.push_static(*static_index as usize, statics);
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -1025,16 +1023,18 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           })
         }
         Instruction::GlobalU24 { global_index } => {
-          stack.push_global(*global_index as usize);
+          stack.push_global(*global_index as usize, globals);
           stack.push_reference()?;
         }
-        Instruction::GlobalU24Load { global_index } => stack.push_global(*global_index as usize),
+        Instruction::GlobalU24Load { global_index } => {
+          stack.push_global(*global_index as usize, globals)
+        }
         Instruction::GlobalU24Store { global_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
-                stack.push_global(*global_index as usize);
+                stack.push_global(*global_index as usize, globals);
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -1096,7 +1096,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
 
     if let Some(after) = flow.after() {
       let (new_statements, new_stack) =
-        self.decompile_node(script, functions, after, stack.clone())?;
+        self.decompile_node(script, functions, after, stack.clone(), statics, globals)?;
       statements.extend(new_statements);
       stack = new_stack;
     }
@@ -1113,6 +1113,86 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
       Some(&self.locals[index - self.parameters.len() - 2])
     } else {
       None
+    }
+  }
+
+  fn add_statement_types(&self, statements: &[StatementInfo]) {
+    for info in statements {
+      match &info.statement {
+        Statement::Nop => {}
+        Statement::Assign {
+          destination,
+          source
+        } => {
+          LinkedValueType::link(&destination.ty, &source.ty);
+        }
+        Statement::Return { values } => {
+          match &values[..] {
+            [value] => {
+              self
+                .returns
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .hint(value.ty.borrow().get_concrete())
+            }
+            [] => {}
+            values => {
+              self
+                .returns
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .hint(ValueTypeInfo {
+                  ty:         ValueType::Struct {
+                    fields: values.iter().map(|v| v.ty.clone()).collect()
+                  },
+                  confidence: Confidence::High
+                })
+            }
+          }
+        }
+        Statement::Throw { .. } => {}
+        Statement::FunctionCall { .. } => {}
+        Statement::NativeCall { .. } => {}
+        Statement::If { condition, then } => {
+          condition.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Bool),
+            confidence: Confidence::Medium
+          });
+          self.add_statement_types(then);
+        }
+        Statement::IfElse {
+          condition,
+          then,
+          els
+        } => {
+          condition.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Bool),
+            confidence: Confidence::Medium
+          });
+          self.add_statement_types(then);
+          self.add_statement_types(els);
+        }
+        Statement::WhileLoop { condition, body } => {
+          condition.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Bool),
+            confidence: Confidence::Medium
+          });
+          self.add_statement_types(body);
+        }
+        Statement::Switch { condition, cases } => {
+          condition.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Int),
+            confidence: Confidence::Medium
+          });
+          for (body, _) in cases {
+            self.add_statement_types(body);
+          }
+        }
+        Statement::Break => {}
+        Statement::Continue => {}
+      }
     }
   }
 }

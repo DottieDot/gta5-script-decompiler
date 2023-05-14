@@ -1,11 +1,11 @@
-use std::{borrow::Borrow, cell::RefCell, collections::VecDeque, rc::Rc};
+use std::collections::VecDeque;
 
-use itertools::Itertools;
 use thiserror::Error;
 
 use super::{
   stack_entry::{BinaryOperator, StackEntry, UnaryOperator},
-  Confidence, Function, LinkedValueType, Primitives, StackEntryInfo, ValueType, ValueTypeInfo
+  Confidence, Function, LinkedValueType, Primitives, ScriptGlobals, ScriptStatics, StackEntryInfo,
+  ValueType, ValueTypeInfo
 };
 
 #[derive(Default, Debug, Clone)]
@@ -120,17 +120,20 @@ impl Stack {
     })
   }
 
-  pub fn push_static(&mut self, static_index: usize) {
+  pub fn push_static(&mut self, static_index: usize, statics: &ScriptStatics) {
     self.stack.push_back(StackEntryInfo {
       entry: StackEntry::Static(static_index),
-      ty:    LinkedValueType::new_primitive(Primitives::Unknown).make_shared()
+      ty:    statics
+        .get_static(static_index)
+        .cloned()
+        .unwrap_or_else(|| LinkedValueType::new_primitive(Primitives::Unknown).make_shared())
     })
   }
 
-  pub fn push_global(&mut self, global_index: usize) {
+  pub fn push_global(&mut self, global_index: usize, globals: &mut ScriptGlobals) {
     self.stack.push_back(StackEntryInfo {
       entry: StackEntry::Global(global_index),
-      ty:    LinkedValueType::new_primitive(Primitives::Unknown).make_shared()
+      ty:    globals.get_global(global_index).clone()
     })
   }
 

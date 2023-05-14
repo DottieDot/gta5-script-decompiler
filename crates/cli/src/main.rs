@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fs};
 
 use gta5_script_decompiler::{
-  decompiler::functions,
+  decompiler::{functions, ScriptGlobals, ScriptStatics},
   disassembler::disassemble,
   formatters::{AssemblyFormatter, CppFormatter},
   script::parse_ysc_file
@@ -11,6 +11,9 @@ fn main() -> anyhow::Result<()> {
   let script = parse_ysc_file(r"./input.ysc")?;
 
   let disassembly = disassemble(&script.code)?;
+
+  let statics = ScriptStatics::new(script.header.static_count as usize);
+  let mut globals = ScriptGlobals::default();
 
   //  let formatter = AssemblyFormatter::new(&disassembly, false, 0, &script.strings);
 
@@ -36,7 +39,7 @@ fn main() -> anyhow::Result<()> {
   // - 6294 (switch)
   // - 686 (disconnected loop)
   // TODO:
-  let func = &functions[1271];
+  let func = &functions[2263];
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,
@@ -76,10 +79,10 @@ fn main() -> anyhow::Result<()> {
   */
 
   let cpp_formatter = CppFormatter::new(&function_map);
-  let decompiled = func.decompile(&script, &function_map)?;
+  let decompiled = func.decompile(&script, &function_map, &statics, &mut globals)?;
   let formatted = cpp_formatter.format_function(&decompiled);
 
-  fs::write("output.rs", format!("{decompiled:#?}"))?;
+  //fs::write("output.rs", format!("{decompiled:#?}"))?;
   fs::write("output.cpp", formatted)?;
 
   Ok(())

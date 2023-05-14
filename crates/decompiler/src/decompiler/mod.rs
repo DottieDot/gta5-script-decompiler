@@ -13,10 +13,12 @@ mod function;
 mod function_graph;
 mod stack;
 mod stack_entry;
+mod value_type;
 
 pub use function::*;
 pub use function_graph::CaseValue;
 pub use stack_entry::*;
+pub use value_type::*;
 
 fn find_functions<'bytes, 'input: 'bytes>(
   instructions: &'input [InstructionInfo]
@@ -25,7 +27,12 @@ fn find_functions<'bytes, 'input: 'bytes>(
   let mut it = instructions.iter().enumerate().peekable();
 
   while let Some((start, instr)) = it.next() {
-    if let Instruction::Enter { arg_count, .. } = instr.instruction {
+    if let Instruction::Enter {
+      arg_count,
+      frame_size,
+      ..
+    } = instr.instruction
+    {
       let mut last_leave: Option<(usize, u8)> = None;
       loop {
         let next = it.peek();
@@ -60,7 +67,8 @@ fn find_functions<'bytes, 'input: 'bytes>(
           name:         format!("func_{}", result.len()),
           location:     instructions[start].pos,
           parameters:   arg_count as u32,
-          return_count: return_count as u32,
+          returns:      return_count as u32,
+          locals:       frame_size as u32 - arg_count as u32 - 2,
           instructions: &instructions[start..=end]
         }))
       }

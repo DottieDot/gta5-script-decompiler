@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
   decompiler::{
     decompiled::Statement,
-    stack_entry::{BinaryOperator, Type, UnaryOperator}
+    stack_entry::{BinaryOperator, UnaryOperator}
   },
   disassembler::{Instruction, InstructionInfo},
   formatters::AssemblyFormatter,
@@ -13,14 +13,16 @@ use crate::{
 use super::{
   decompiled::{DecompiledFunction, StatementInfo},
   function_graph::{ControlFlow, FunctionGraph},
-  stack::{InvalidStackError, Stack}
+  stack::{InvalidStackError, Stack},
+  Confidence, LinkedValueType, Primitives, ValueType, ValueTypeInfo
 };
 
 pub struct FunctionInfo<'input, 'bytes> {
   pub name:         String,
   pub location:     usize,
   pub parameters:   u32,
-  pub return_count: u32,
+  pub returns:      u32,
+  pub locals:       u32,
   pub instructions: &'input [InstructionInfo<'bytes>]
 }
 
@@ -28,8 +30,9 @@ pub struct FunctionInfo<'input, 'bytes> {
 pub struct Function<'input, 'bytes> {
   pub name:         String,
   pub location:     usize,
-  pub parameters:   u32,
-  pub return_count: u32,
+  pub parameters:   Vec<Rc<RefCell<LinkedValueType>>>,
+  pub locals:       Vec<Rc<RefCell<LinkedValueType>>>,
+  pub returns:      Option<Rc<RefCell<LinkedValueType>>>,
   pub instructions: &'input [InstructionInfo<'bytes>],
   pub graph:        FunctionGraph<'input, 'bytes>
 }
@@ -40,8 +43,55 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     Self {
       name:         info.name,
       location:     info.location,
-      parameters:   info.parameters,
-      return_count: info.return_count,
+      parameters:   (0..info.parameters)
+        .map(|_| {
+          LinkedValueType::Type(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Unknown),
+            confidence: Confidence::None
+          })
+          .make_shared()
+        })
+        .collect(),
+      locals:       (0..info.locals)
+        .map(|_| {
+          LinkedValueType::Type(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Unknown),
+            confidence: Confidence::None
+          })
+          .make_shared()
+        })
+        .collect(),
+      returns:      match info.returns {
+        0 => None,
+        1 => {
+          Some(
+            LinkedValueType::Type(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Unknown),
+              confidence: Confidence::None
+            })
+            .make_shared()
+          )
+        }
+        _ => {
+          Some(
+            LinkedValueType::Type(ValueTypeInfo {
+              ty:         ValueType::Struct {
+                fields: (0..info.returns)
+                  .map(|_| {
+                    LinkedValueType::Type(ValueTypeInfo {
+                      ty:         ValueType::Primitive(Primitives::Unknown),
+                      confidence: Confidence::None
+                    })
+                    .make_shared()
+                  })
+                  .collect()
+              },
+              confidence: Confidence::None
+            })
+            .make_shared()
+          )
+        }
+      },
       instructions: info.instructions,
       graph:        graph
     }
@@ -62,9 +112,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     let (statements, _) = self.decompile_node(script, functions, &flow, Default::default())?;
 
     Ok(DecompiledFunction {
-      name: self.name.clone(),
-      params: self.parameters as usize,
-      statements
+      name:       self.name.clone(),
+      params:     self.parameters.clone(),
+      returns:    self.returns.clone(),
+      locals:     self.locals.clone(),
+      statements: statements
     })
   }
 
@@ -86,72 +138,343 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             statement:    Statement::Nop
           })
         }
-        Instruction::IntegerAdd => stack.push_binary_operator(Type::Int, BinaryOperator::Add)?,
+        Instruction::IntegerAdd => {
+          stack.push_binary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::Add
+          )?
+        }
         Instruction::IntegerSubtract => {
-          stack.push_binary_operator(Type::Int, BinaryOperator::Subtract)?
+          stack.push_binary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::Subtract
+          )?
         }
         Instruction::IntegerMultiply => {
-          stack.push_binary_operator(Type::Int, BinaryOperator::Multiply)?
+          stack.push_binary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::Multiply
+          )?
         }
         Instruction::IntegerDivide => {
-          stack.push_binary_operator(Type::Int, BinaryOperator::Divide)?
+          stack.push_binary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::Divide
+          )?
         }
         Instruction::IntegerModulo => {
-          stack.push_binary_operator(Type::Int, BinaryOperator::Modulo)?
+          stack.push_binary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::Modulo
+          )?
         }
-        Instruction::IntegerNot => stack.push_unary_operator(Type::Bool, UnaryOperator::Not)?,
+        Instruction::IntegerNot => {
+          stack.push_unary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            UnaryOperator::Not
+          )?
+        }
         Instruction::IntegerNegate => {
-          stack.push_unary_operator(Type::Int, UnaryOperator::Negate)?
+          stack.push_unary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            UnaryOperator::Negate
+          )?
         }
         Instruction::IntegerEquals => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::Equal)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::Equal
+          )?
         }
         Instruction::IntegerNotEquals => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::NotEqual)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::NotEqual
+          )?
         }
         Instruction::IntegerGreaterThan => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::GreaterThan)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::GreaterThan
+          )?
         }
         Instruction::IntegerGreaterOrEqual => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::GreaterOrEqual)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::GreaterOrEqual
+          )?
         }
         Instruction::IntegerLowerThan => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::LowerThan)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::LowerThan
+          )?
         }
         Instruction::IntegerLowerOrEqual => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::LowerOrEqual)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::LowerOrEqual
+          )?
         }
-        Instruction::FloatAdd => stack.push_binary_operator(Type::Float, BinaryOperator::Add)?,
+        Instruction::FloatAdd => {
+          stack.push_binary_operator(
+            Primitives::Float,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::Add
+          )?
+        }
         Instruction::FloatSubtract => {
-          stack.push_binary_operator(Type::Float, BinaryOperator::Subtract)?
+          stack.push_binary_operator(
+            Primitives::Float,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::Subtract
+          )?
         }
         Instruction::FloatMultiply => {
-          stack.push_binary_operator(Type::Float, BinaryOperator::Multiply)?
+          stack.push_binary_operator(
+            Primitives::Float,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::Multiply
+          )?
         }
         Instruction::FloatDivide => {
-          stack.push_binary_operator(Type::Float, BinaryOperator::Divide)?
+          stack.push_binary_operator(
+            Primitives::Float,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::Divide
+          )?
         }
         Instruction::FloatModule => {
-          stack.push_binary_operator(Type::Float, BinaryOperator::Modulo)?
+          stack.push_binary_operator(
+            Primitives::Float,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::Modulo
+          )?
         }
-        Instruction::FloatNegate => stack.push_unary_operator(Type::Bool, UnaryOperator::Negate)?,
+        Instruction::FloatNegate => {
+          stack.push_unary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            UnaryOperator::Negate
+          )?
+        }
         Instruction::FloatEquals => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::Equal)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::Equal
+          )?
         }
         Instruction::FloatNotEquals => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::NotEqual)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::NotEqual
+          )?
         }
         Instruction::FloatGreaterThan => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::GreaterThan)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::GreaterThan
+          )?
         }
         Instruction::FloatGreaterOrEqual => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::GreaterOrEqual)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::GreaterOrEqual
+          )?
         }
         Instruction::FloatLowerThan => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::LowerThan)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::LowerThan
+          )?
         }
         Instruction::FloatLowerOrEqual => {
-          stack.push_binary_operator(Type::Bool, BinaryOperator::LowerOrEqual)?
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            },
+            BinaryOperator::LowerOrEqual
+          )?
         }
         Instruction::VectorAdd => stack.push_vector_binary_operator(BinaryOperator::Add)?,
         Instruction::VectorSubtract => {
@@ -163,16 +486,65 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::VectorDivide => stack.push_vector_binary_operator(BinaryOperator::Divide)?,
         Instruction::VectorNegate => todo!(), // TODO
         Instruction::BitwiseAnd => {
-          stack.push_binary_operator(Type::Int, BinaryOperator::BitwiseAnd)?
+          stack.push_binary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::BitwiseAnd
+          )?
         }
         Instruction::BitwiseOr => {
-          stack.push_binary_operator(Type::Int, BinaryOperator::BitwiseOr)?
+          stack.push_binary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::BitwiseOr
+          )?
         }
         Instruction::BitwiseXor => {
-          stack.push_binary_operator(Type::Int, BinaryOperator::BitwiseXor)?
+          stack.push_binary_operator(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::BitwiseXor
+          )?
         }
-        Instruction::IntegerToFloat => stack.push_cast(Type::Float)?,
-        Instruction::FloatToInteger => stack.push_cast(Type::Int)?,
+        Instruction::IntegerToFloat => {
+          stack.push_cast(
+            Primitives::Float,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            }
+          )?
+        }
+        Instruction::FloatToInteger => {
+          stack.push_cast(
+            Primitives::Int,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Float),
+              confidence: Confidence::High
+            }
+          )?
+        }
         Instruction::FloatToVector => todo!(), // TODO
         Instruction::PushConstU8 { c1 } => stack.push_int(*c1 as i64),
         Instruction::PushConstU8U8 { c1, c2 } => {
@@ -217,11 +589,36 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         }
         Instruction::Enter { .. } => { /* SKIP */ }
         Instruction::Leave { return_count, .. } => {
+          let values = stack.pop_n(*return_count as usize)?;
+
+          match &values[..] {
+            [value] => {
+              self
+                .returns
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .hint(value.ty.borrow().get_concrete())
+            }
+            [] => {}
+            values => {
+              self
+                .returns
+                .as_ref()
+                .unwrap()
+                .borrow_mut()
+                .hint(ValueTypeInfo {
+                  ty:         ValueType::Struct {
+                    fields: values.iter().map(|v| v.ty.clone()).collect()
+                  },
+                  confidence: Confidence::High
+                })
+            }
+          }
+
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
-            statement:    Statement::Return {
-              values: stack.pop_n(*return_count as usize)?
-            }
+            statement:    Statement::Return { values }
           })
         }
         Instruction::Load => stack.push_deref()?,
@@ -257,16 +654,16 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           })
         }
         Instruction::LocalU8 { offset } => {
-          stack.push_local(*offset as usize);
+          stack.push_local(*offset as usize, self);
           stack.push_reference()?
         }
-        Instruction::LocalU8Load { offset } => stack.push_local(*offset as usize),
+        Instruction::LocalU8Load { offset } => stack.push_local(*offset as usize, self),
         Instruction::LocalU8Store { offset } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
-                stack.push_local(*offset as usize);
+                stack.push_local(*offset as usize, self);
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -363,16 +760,16 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           })
         }
         Instruction::LocalU16 { local_index } => {
-          stack.push_local(*local_index as usize);
+          stack.push_local(*local_index as usize, self);
           stack.push_reference()?
         }
-        Instruction::LocalU16Load { local_index } => stack.push_local(*local_index as usize),
+        Instruction::LocalU16Load { local_index } => stack.push_local(*local_index as usize, self),
         Instruction::LocalU16Store { local_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
               destination: {
-                stack.push_local(*local_index as usize);
+                stack.push_local(*local_index as usize, self);
                 stack.pop()?
               },
               source:      stack.pop()?
@@ -424,22 +821,88 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         | Instruction::Switch { .. } => {
           match &info.instruction {
             Instruction::IfEqualJumpZero { .. } => {
-              stack.push_binary_operator(Type::Bool, BinaryOperator::Equal)?
+              stack.push_binary_operator(
+                Primitives::Bool,
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                BinaryOperator::Equal
+              )?
             }
             Instruction::IfNotEqualJumpZero { .. } => {
-              stack.push_binary_operator(Type::Bool, BinaryOperator::NotEqual)?
+              stack.push_binary_operator(
+                Primitives::Bool,
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                BinaryOperator::NotEqual
+              )?
             }
             Instruction::IfGreaterThanJumpZero { .. } => {
-              stack.push_binary_operator(Type::Bool, BinaryOperator::GreaterThan)?
+              stack.push_binary_operator(
+                Primitives::Bool,
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                BinaryOperator::GreaterThan
+              )?
             }
             Instruction::IfGreaterOrEqualJumpZero { .. } => {
-              stack.push_binary_operator(Type::Bool, BinaryOperator::GreaterOrEqual)?
+              stack.push_binary_operator(
+                Primitives::Bool,
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                BinaryOperator::GreaterOrEqual
+              )?
             }
             Instruction::IfLowerThanJumpZero { .. } => {
-              stack.push_binary_operator(Type::Bool, BinaryOperator::LowerThan)?
+              stack.push_binary_operator(
+                Primitives::Bool,
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                BinaryOperator::LowerThan
+              )?
             }
             Instruction::IfLowerOrEqualJumpZero { .. } => {
-              stack.push_binary_operator(Type::Bool, BinaryOperator::LowerOrEqual)?
+              stack.push_binary_operator(
+                Primitives::Bool,
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::Int),
+                  confidence: Confidence::Medium
+                },
+                BinaryOperator::LowerOrEqual
+              )?
             }
             _ => {}
           }
@@ -528,18 +991,14 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::FunctionCall { location } => {
           let location = *location as usize;
           let target = functions.get(&location).expect("TODO HANDLE THIS");
-          if target.return_count > 0 {
-            stack.push_function_call(
-              target.parameters as usize,
-              target.return_count as usize,
-              target.location
-            )?
+          if target.returns.is_some() {
+            stack.push_function_call(target)?
           } else {
             statements.push(StatementInfo {
               instructions: &self.instructions[index..=index],
               statement:    Statement::FunctionCall {
                 args:             {
-                  let mut args = stack.pop_n(target.parameters as usize)?;
+                  let mut args = stack.pop_n(target.parameters.len())?;
                   args.reverse();
                   args
                 },
@@ -618,7 +1077,20 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::PushConstF5 => stack.push_float(5f32),
         Instruction::PushConstF6 => stack.push_float(6f32),
         Instruction::PushConstF7 => stack.push_float(7f32),
-        Instruction::BitTest => stack.push_binary_operator(Type::Bool, BinaryOperator::BitTest)?
+        Instruction::BitTest => {
+          stack.push_binary_operator(
+            Primitives::Bool,
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            },
+            BinaryOperator::BitTest
+          )?
+        }
       };
     }
 
@@ -630,5 +1102,17 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     }
 
     Ok((statements, stack))
+  }
+
+  pub fn local_index_type(&self, index: usize) -> Option<&Rc<RefCell<LinkedValueType>>> {
+    if index < self.parameters.len() {
+      Some(&self.parameters[index])
+    } else if index < self.parameters.len() + 2 {
+      None
+    } else if index < self.parameters.len() + 2 + self.locals.len() {
+      Some(&self.locals[index - self.parameters.len() - 2])
+    } else {
+      None
+    }
   }
 }

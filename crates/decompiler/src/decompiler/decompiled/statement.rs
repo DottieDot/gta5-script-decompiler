@@ -1,5 +1,5 @@
 use crate::{
-  decompiler::{function_graph::CaseValue, stack_entry::StackEntry},
+  decompiler::{function_graph::CaseValue, StackEntryInfo},
   disassembler::InstructionInfo
 };
 
@@ -7,38 +7,38 @@ use crate::{
 pub enum Statement<'i, 'b> {
   Nop,
   Assign {
-    destination: StackEntry,
-    source:      StackEntry
+    destination: StackEntryInfo,
+    source:      StackEntryInfo
   },
   Return {
-    values: Vec<StackEntry>
+    values: Vec<StackEntryInfo>
   },
   Throw {
-    value: StackEntry
+    value: StackEntryInfo
   },
   FunctionCall {
-    args:             Vec<StackEntry>,
+    args:             Vec<StackEntryInfo>,
     function_address: usize
   },
   NativeCall {
-    args:        Vec<StackEntry>,
+    args:        Vec<StackEntryInfo>,
     native_hash: u64
   },
   If {
-    condition: StackEntry,
+    condition: StackEntryInfo,
     then:      Vec<StatementInfo<'i, 'b>>
   },
   IfElse {
-    condition: StackEntry,
+    condition: StackEntryInfo,
     then:      Vec<StatementInfo<'i, 'b>>,
     els:       Vec<StatementInfo<'i, 'b>>
   },
   WhileLoop {
-    condition: StackEntry,
+    condition: StackEntryInfo,
     body:      Vec<StatementInfo<'i, 'b>>
   },
   Switch {
-    condition: StackEntry,
+    condition: StackEntryInfo,
     cases:     Vec<(Vec<StatementInfo<'i, 'b>>, Vec<CaseValue>)>
   },
   Break,

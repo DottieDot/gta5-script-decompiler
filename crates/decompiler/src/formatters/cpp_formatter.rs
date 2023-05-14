@@ -4,7 +4,8 @@ use itertools::Itertools;
 
 use crate::decompiler::{
   decompiled::{DecompiledFunction, Statement, StatementInfo},
-  BinaryOperator, CaseValue, Function, StackEntry, Type, UnaryOperator
+  BinaryOperator, CaseValue, Function, LinkedValueType, Primitives, StackEntry, StackEntryInfo,
+  UnaryOperator, ValueType
 };
 
 use super::code_builder::CodeBuilder;
@@ -36,10 +37,22 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
 
   fn create_signature(&self, function: &DecompiledFunction) -> String {
     let mut args = vec![];
-    for i in 0..function.params {
-      args.push(format!("parameter_{i}"));
+
+    let mut iter = function.params.iter().enumerate();
+    while let Some((i, p)) = iter.next() {
+      args.push(format!("{} parameter_{i}", self.format_type(&p.borrow())));
+      let _ = iter.advance_by(p.borrow().size() - 1);
     }
-    format!("func {}({})", function.name, args.join(", "))
+    format!(
+      "{} {}({})",
+      function
+        .returns
+        .as_ref()
+        .map(|returns| self.format_type(&returns.borrow()))
+        .unwrap_or("void".to_owned()),
+      function.name,
+      args.join(", ")
+    )
   }
 
   fn write_statement(
@@ -192,8 +205,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
     }
   }
 
-  fn format_stack_entry(&self, value: &StackEntry, function: &DecompiledFunction) -> String {
-    match value {
+  fn format_stack_entry(&self, value: &StackEntryInfo, function: &DecompiledFunction) -> String {
+    match &value.entry {
       StackEntry::Int(i) => i.to_string(),
       StackEntry::Float(f) => {
         if f.trunc() == *f {
@@ -211,8 +224,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         format!("({values})")
       }
       StackEntry::StructField { source, field } => {
-        if let StackEntry::Deref(deref) = source.as_ref() {
-          match deref.as_ref() {
+        if let StackEntry::Deref(deref) = &source.entry {
+          match &deref.entry {
             StackEntry::Ref(rf) => {
               return format!("{}->f_{field}", self.format_stack_entry(rf, function))
             }
@@ -222,7 +235,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         format!("{}.f_{field}", self.format_stack_entry(source, function))
       }
       StackEntry::Offset { source, offset } => {
-        match source.as_ref() {
+        match &source.entry {
           StackEntry::Ref(rf) => {
             format!(
               "{}.f_{}",
@@ -244,9 +257,9 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         index,
         item_size
       } => {
-        let source = match source.as_ref() {
+        let source = match &source.entry {
           StackEntry::Ref(stat) => self.format_stack_entry(stat, function),
-          other => self.format_stack_entry(other, function)
+          _ => self.format_stack_entry(source, function)
         };
         format!(
           "{}[{} /* {item_size} */]",
@@ -280,7 +293,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           BinaryOperator::LowerThan => "<",
           BinaryOperator::LowerOrEqual => "<=",
           BinaryOperator::LogicalAnd => {
-            match (lhs.as_ref(), rhs.as_ref()) {
+            match (&lhs.entry, &rhs.entry) {
               (
                 StackEntry::BinaryOperator {
                   op: BinaryOperator::LogicalOr,
@@ -327,7 +340,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
             }
           }
           BinaryOperator::LogicalOr => {
-            match (lhs.as_ref(), rhs.as_ref()) {
+            match (&lhs.entry, &rhs.entry) {
               (
                 StackEntry::BinaryOperator {
                   op: BinaryOperator::LogicalAnd,
@@ -396,15 +409,16 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
 
         format!("{op}({})", self.format_stack_entry(lhs, function))
       }
-      StackEntry::Cast { source, ty } => {
-        let ty = match ty {
-          Type::Int => "int",
-          Type::Float => "float",
-          Type::Bool => "bool",
-          Type::String | Type::Pointer(_) | Type::Array(_, _) | Type::Struct | Type::Unknown => {
-            panic!("unsupported cast")
-          }
-        };
+      StackEntry::Cast { source } => {
+        // let ty = match ty {
+        //   Type::Int => "int",
+        //   Type::Float => "float",
+        //   Type::Bool => "bool",
+        //   Type::String | Type::Pointer(_) | Type::Array(_, _) | Type::Struct | Type::Unknown => {
+        //     panic!("unsupported cast")
+        //   }
+        // };
+        let ty = "UNK";
         format!("({ty}){}", self.format_stack_entry(source, function))
       }
       StackEntry::StringHash(str) => format!("HASH({})", self.format_stack_entry(str, function)),
@@ -423,7 +437,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   fn format_function_call(
     &self,
     address: usize,
-    args: &Vec<StackEntry>,
+    args: &Vec<StackEntryInfo>,
     function: &DecompiledFunction
   ) -> String {
     let args = args
@@ -441,7 +455,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   fn format_native_call(
     &self,
     native_hash: u64,
-    args: &Vec<StackEntry>,
+    args: &Vec<StackEntryInfo>,
     function: &DecompiledFunction
   ) -> String {
     let args = args
@@ -452,13 +466,40 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   }
 
   fn format_local(&self, local: usize, function: &DecompiledFunction) -> String {
-    if local < function.params {
+    if local < function.params.len() {
       format!("parameter_{local}")
     } else {
       format!(
         "local_{}",
-        local - function.params - 2 /* return address and stack frame */
+        local - function.params.len() - 2 /* return address and stack frame */
       )
+    }
+  }
+
+  fn format_type(&self, ty: &LinkedValueType) -> String {
+    let ty = ty.get_concrete();
+
+    match &ty.ty {
+      ValueType::Struct { fields } => {
+        let fields = fields
+          .iter()
+          .map(|field| self.format_type(&field.borrow()))
+          .join(", ");
+
+        format!("struct<{fields}>")
+      }
+      ValueType::Array { item_type } => format!("{}[]", self.format_type(&item_type.borrow())),
+      ValueType::Function { params, returns } => todo!(),
+      ValueType::Primitive(primitive) => {
+        match primitive {
+          Primitives::Float => "float".to_owned(),
+          Primitives::Int => "int".to_owned(),
+          Primitives::String => "const char*".to_owned(),
+          Primitives::Bool => "bool".to_owned(),
+          Primitives::Unknown => "any".to_owned()
+        }
+      }
+      ValueType::Ref(t) => format!("{}*", self.format_type(&t.borrow()))
     }
   }
 }

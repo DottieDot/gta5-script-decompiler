@@ -462,7 +462,21 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
               })
             }
             ControlFlow::Leaf { .. } | ControlFlow::Flow { .. } => {}
-            ControlFlow::AndOr { .. } => todo!(),
+            ControlFlow::AndOr { with, after, .. } => {
+              let mut stack = vec![after, with];
+              while let Some(current) = stack.pop() {
+                let current_node = current.node();
+                match current.as_ref() {
+                  ControlFlow::AndOr { with, after, .. } => todo!(),
+                  ControlFlow::Leaf { .. } => todo!(),
+                  ControlFlow::If { .. }
+                  | ControlFlow::IfElse { .. }
+                  | ControlFlow::WhileLoop { .. } => todo!(),
+                  _ => panic!("unexpected node in AndOr chain")
+                };
+              }
+              todo!()
+            }
             ControlFlow::WhileLoop { body, .. } => {
               statements.push(StatementInfo {
                 instructions: &self.instructions[index..=index],

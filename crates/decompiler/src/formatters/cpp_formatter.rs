@@ -195,7 +195,13 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   fn format_stack_entry(&self, value: &StackEntry, function: &DecompiledFunction) -> String {
     match value {
       StackEntry::Int(i) => i.to_string(),
-      StackEntry::Float(f) => f.to_string(),
+      StackEntry::Float(f) => {
+        if f.trunc() == *f {
+          format!("{f}.f")
+        } else {
+          format!("{f}f")
+        }
+      }
       StackEntry::String(usize) => format!("STRING({usize})"),
       StackEntry::ResultStruct { values } => {
         let values = values

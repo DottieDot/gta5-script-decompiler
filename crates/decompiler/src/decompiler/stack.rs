@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use itertools::Itertools;
 use thiserror::Error;
 
 use super::stack_entry::{BinaryOperator, StackEntry, Type, UnaryOperator};
@@ -181,14 +182,15 @@ impl Stack {
       return Err(InvalidStackError)
     };
 
-    for i in 0..n {
-      self
-        .stack
-        .push_back(StackEntry::Deref(Box::new(StackEntry::Offset {
-          source: Box::new(addr.clone()),
-          offset: Box::new(StackEntry::Int(i))
-        })));
-    }
+    let addr = match addr {
+      StackEntry::Ref(rf) => *rf,
+      _ => addr
+    };
+
+    self.stack.push_back(StackEntry::Struct {
+      origin: Box::new(addr),
+      size:   n as usize
+    });
 
     Ok(())
   }
@@ -266,7 +268,7 @@ impl Stack {
     while n > 0 {
       let back = self.back()?;
 
-      if back.size() >= n {
+      if back.size() > n {
         result.push(self.pop()?);
         n -= 1;
       } else {

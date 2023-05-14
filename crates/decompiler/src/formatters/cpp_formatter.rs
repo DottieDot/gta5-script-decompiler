@@ -409,7 +409,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       } => self.format_function_call(*function_address, args, function),
       StackEntry::NativeCallResult {
         args, native_hash, ..
-      } => self.format_native_call(*native_hash, args, function)
+      } => self.format_native_call(*native_hash, args, function),
+      StackEntry::Struct { origin, .. } => self.format_stack_entry(origin, function)
     }
   }
 

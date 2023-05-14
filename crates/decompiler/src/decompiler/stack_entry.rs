@@ -6,6 +6,10 @@ pub enum StackEntry {
   Float(f32),
   String(usize),
   Struct {
+    origin: Box<StackEntry>,
+    size:   usize
+  },
+  ResultStruct {
     values: Vec<StackEntry>
   },
   StructField {
@@ -85,14 +89,16 @@ impl StackEntry {
       Self::StringHash(_) => Type::Int,
       Self::FunctionCallResult { .. } => Type::Struct,
       Self::NativeCallResult { .. } => Type::Struct,
-      Self::Struct { .. } => Type::Struct,
-      Self::StructField { .. } => Type::Unknown
+      Self::ResultStruct { .. } => Type::Struct,
+      Self::StructField { .. } => Type::Unknown,
+      Self::Struct { .. } => Type::Struct
     }
   }
 
   pub fn size(&self) -> usize {
     match self {
-      Self::Struct { values } => values.len(),
+      Self::Struct { size, .. } => *size,
+      Self::ResultStruct { values } => values.len(),
       Self::FunctionCallResult { return_values, .. } => *return_values,
       Self::NativeCallResult { return_values, .. } => *return_values,
       _ => 1
@@ -107,7 +113,15 @@ impl StackEntry {
 
     let cloned = self.clone();
     match &mut self {
-      Self::Struct { values } => {
+      Self::Struct { origin, size } => {
+        size.checked_sub(1).expect("corrupted stack entry");
+        let field = Self::StructField {
+          source: origin.clone(),
+          field:  *size
+        };
+        (field, Some(self))
+      }
+      Self::ResultStruct { values } => {
         values.pop().expect("corrupted stack entry");
         let field = Self::StructField {
           source: Box::new(cloned),
@@ -163,7 +177,9 @@ pub enum BinaryOperator {
   GreaterOrEqual,
   LowerThan,
   LowerOrEqual,
-  BitTest
+  BitTest,
+  LogicalAnd,
+  LogicalOr
 }
 
 #[derive(Copy, Clone, Debug)]

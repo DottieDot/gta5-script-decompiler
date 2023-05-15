@@ -426,18 +426,24 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           .flat_map(|(node, _)| self.frontiers[node].sub(&case_set))
           .dedup();
 
-        let after_node = match (case_frontiers.next(), case_frontiers.next()) {
+        let mut after_node = match (case_frontiers.next(), case_frontiers.next()) {
           (None, _) => None,
           (Some(frontier), None) => Some(frontier),
           (Some(_), Some(_)) => panic!("multiple frontiers for switch cases.")
         };
 
+        if let Some(parent_after) = self.get_first_after(parents) {
+          if after_node.map(|n| n == parent_after).unwrap_or_default() {
+            after_node = None;
+          }
+        }
+
         ControlFlow::Switch {
           node,
           cases: cases
             .into_iter()
-            .map(|(node, cases)| {
-              (self.node_control_flow(node, parents.with_appended(FlowParentType::Switch { node, after: after_node })), cases)
+            .map(|(case_node, cases)| {
+              (self.node_control_flow(case_node, parents.with_appended(FlowParentType::Switch { node, after: after_node })), cases)
             })
             .collect(),
           after: after_node.map(|after| Box::new(self.node_control_flow(after, parents)))
@@ -553,6 +559,20 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     }
 
     after_node.and(loop_node)
+  }
+
+  fn get_first_after(&self, parents: ParentedList<'_, FlowParentType>) -> Option<NodeIndex> {
+    for parent in parents.iter() {
+      match parent {
+        FlowParentType::Loop { after, .. }
+        | FlowParentType::Switch { after , ..} 
+        | FlowParentType::NonBreakable { after, .. } if after.is_some() => { 
+          return *after;
+        }
+        _ => {}
+    }
+    }
+    None
   }
 
   fn last_singular_dominated_node(&self, node: NodeIndex) -> Option<NodeIndex> {

@@ -127,9 +127,10 @@ impl LinkedValueType {
           }
           fields[field].clone()
         } else {
-          let fields = (0..field + 1)
+          let mut fields = (0..field + 1)
             .map(|_| Self::new_primitive(Primitives::Unknown).make_shared())
             .collect::<Vec<_>>();
+          fields[0] = LinkedValueType::Type(t.clone()).make_shared();
           let field = fields[field].clone();
           *t = ValueTypeInfo {
             ty:         ValueType::Struct { fields },
@@ -196,9 +197,17 @@ impl LinkedValueType {
   pub fn hint(&mut self, ty: ValueTypeInfo) {
     match self {
       LinkedValueType::Type(t) => {
-        if ty.confidence > t.confidence {
-          t.ty = ty.ty;
-          t.confidence = ty.confidence;
+        match (&ty.ty, &t.ty) {
+          (ValueType::Primitive(_), ValueType::Struct { fields }) => {
+            let field = &fields[0];
+            field.borrow_mut().hint(ty)
+          }
+          _ => {
+            if ty.confidence > t.confidence {
+              t.ty = ty.ty;
+              t.confidence = ty.confidence;
+            }
+          }
         }
       }
       LinkedValueType::Redirect(r) => r.borrow_mut().hint(ty)

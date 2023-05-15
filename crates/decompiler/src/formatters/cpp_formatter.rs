@@ -92,8 +92,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       } => {
         builder.line(&format!(
           "{destination} = {source};",
-          destination = self.format_stack_entry(destination, function),
-          source = self.format_stack_entry(source, function)
+          destination = self.format_stack_entry(destination, None, function),
+          source = self.format_stack_entry(source, None, function)
         ));
       }
       Statement::Return { values } => {
@@ -101,17 +101,25 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           [single] => {
             builder.line(&format!(
               "return {};",
-              self.format_stack_entry(single, function)
+              self.format_stack_entry(single, None, function)
             ));
           }
-          [] => {}
-          _ => {}
+          [] => {
+            builder.line("return;");
+          }
+          values => {
+            let values = values
+              .iter()
+              .map(|v| self.format_stack_entry(v, None, function))
+              .join(", ");
+            builder.line(&format!("return {{ {values} }}"));
+          }
         }
       }
       Statement::Throw { value } => {
         builder.line(&format!(
           "throw {};",
-          self.format_stack_entry(value, function)
+          self.format_stack_entry(value, None, function)
         ));
       }
       Statement::FunctionCall {
@@ -134,7 +142,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           .line(&format!(
             "{}if ({})",
             if else_if { "else " } else { "" },
-            self.format_stack_entry(condition, function)
+            self.format_stack_entry(condition, None, function)
           ))
           .line("{")
           .branch(|builder| {
@@ -153,7 +161,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           .line(&format!(
             "{}if ({})",
             if else_if { "else " } else { "" },
-            self.format_stack_entry(condition, function)
+            self.format_stack_entry(condition, None, function)
           ))
           .line("{")
           .branch(|builder| {
@@ -185,7 +193,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         builder
           .line(&format!(
             "while ({})",
-            self.format_stack_entry(condition, function)
+            self.format_stack_entry(condition, None, function)
           ))
           .line("{")
           .branch(|builder| {
@@ -199,7 +207,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         builder
           .line(&format!(
             "switch ({})",
-            self.format_stack_entry(condition, function)
+            self.format_stack_entry(condition, None, function)
           ))
           .line("{")
           .branch(|builder| {
@@ -228,7 +236,12 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
     }
   }
 
-  fn format_stack_entry(&self, value: &StackEntryInfo, function: &DecompiledFunction) -> String {
+  fn format_stack_entry(
+    &self,
+    value: &StackEntryInfo,
+    parent: Option<&StackEntryInfo>,
+    function: &DecompiledFunction
+  ) -> String {
     match &value.entry {
       StackEntry::Int(i) => i.to_string(),
       StackEntry::Float(f) => {
@@ -242,32 +255,38 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       StackEntry::ResultStruct { values } => {
         let values = values
           .iter()
-          .map(|se| self.format_stack_entry(se, function))
+          .map(|se| self.format_stack_entry(se, Some(value), function))
           .join(", ");
         format!("({values})")
       }
       StackEntry::StructField { source, field } => {
         if let StackEntry::Deref(deref) = &source.entry {
           if let StackEntry::Ref(rf) = &deref.entry {
-            return format!("{}->f_{field}", self.format_stack_entry(rf, function));
+            return format!(
+              "{}->f_{field}",
+              self.format_stack_entry(rf, Some(value), function)
+            );
           }
         }
-        format!("{}.f_{field}", self.format_stack_entry(source, function))
+        format!(
+          "{}.f_{field}",
+          self.format_stack_entry(source, Some(value), function)
+        )
       }
       StackEntry::Offset { source, offset } => {
         match &source.entry {
           StackEntry::Ref(rf) => {
             format!(
               "{}.f_{}",
-              self.format_stack_entry(rf, function),
-              self.format_stack_entry(offset, function)
+              self.format_stack_entry(rf, Some(value), function),
+              self.format_stack_entry(offset, Some(value), function)
             )
           }
           _ => {
             format!(
               "{}->f_{}",
-              self.format_stack_entry(source, function),
-              self.format_stack_entry(offset, function)
+              self.format_stack_entry(source, Some(value), function),
+              self.format_stack_entry(offset, Some(value), function)
             )
           }
         }
@@ -278,25 +297,45 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         item_size
       } => {
         let source = match &source.entry {
-          StackEntry::Ref(stat) => self.format_stack_entry(stat, function),
-          _ => self.format_stack_entry(source, function)
+          StackEntry::Ref(stat) => self.format_stack_entry(stat, Some(value), function),
+          _ => self.format_stack_entry(source, Some(value), function)
         };
         format!(
           "{}[{} /* {item_size} */]",
           source,
-          self.format_stack_entry(index, function)
+          self.format_stack_entry(index, Some(value), function)
         )
       }
-      StackEntry::Local(local) => format!("{}", self.format_local(*local, function)),
+      StackEntry::Local(local) => {
+        if value.ty.borrow().size() == 1 {
+          return format!("{}", self.format_local(*local, function));
+        }
+        match parent.map(|p| &p.entry) {
+          Some(
+            StackEntry::Ref { .. }
+            | StackEntry::Struct { .. }
+            | StackEntry::ResultStruct { .. }
+            | StackEntry::Offset { .. }
+          ) => {
+            format!("{}", self.format_local(*local, function))
+          }
+          _ => format!("{}.f_0", self.format_local(*local, function))
+        }
+      }
       StackEntry::Static(stat) => format!("static_{stat}"),
       StackEntry::Global(global) => format!("global_{global}"),
       StackEntry::Deref(deref) => {
         match &deref.entry {
-          StackEntry::Ref(rf) => self.format_stack_entry(rf, function),
-          _ => format!("*({})", self.format_stack_entry(deref, function))
+          StackEntry::Ref(rf) => self.format_stack_entry(rf, Some(value), function),
+          _ => {
+            format!(
+              "*({})",
+              self.format_stack_entry(deref, Some(value), function)
+            )
+          }
         }
       }
-      StackEntry::Ref(rf) => format!("&{}", self.format_stack_entry(rf, function)),
+      StackEntry::Ref(rf) => format!("&{}", self.format_stack_entry(rf, Some(value), function)),
       StackEntry::CatchValue => todo!(),
       StackEntry::BinaryOperator { lhs, rhs, op, .. } => {
         // TODO: Braces
@@ -329,8 +368,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
               ) => {
                 return format!(
                   "({}) && ({})",
-                  self.format_stack_entry(lhs, function),
-                  self.format_stack_entry(rhs, function)
+                  self.format_stack_entry(lhs, Some(value), function),
+                  self.format_stack_entry(rhs, Some(value), function)
                 );
               }
               (
@@ -342,8 +381,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
               ) => {
                 return format!(
                   "({}) && {}",
-                  self.format_stack_entry(lhs, function),
-                  self.format_stack_entry(rhs, function)
+                  self.format_stack_entry(lhs, Some(value), function),
+                  self.format_stack_entry(rhs, Some(value), function)
                 );
               }
               (
@@ -355,8 +394,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
               ) => {
                 return format!(
                   "{} && ({})",
-                  self.format_stack_entry(lhs, function),
-                  self.format_stack_entry(rhs, function)
+                  self.format_stack_entry(lhs, Some(value), function),
+                  self.format_stack_entry(rhs, Some(value), function)
                 );
               }
               _ => "&&"
@@ -376,8 +415,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
               ) => {
                 return format!(
                   "({}) || ({})",
-                  self.format_stack_entry(lhs, function),
-                  self.format_stack_entry(rhs, function)
+                  self.format_stack_entry(lhs, Some(value), function),
+                  self.format_stack_entry(rhs, Some(value), function)
                 );
               }
               (
@@ -389,8 +428,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
               ) => {
                 return format!(
                   "({}) || {}",
-                  self.format_stack_entry(lhs, function),
-                  self.format_stack_entry(rhs, function)
+                  self.format_stack_entry(lhs, Some(value), function),
+                  self.format_stack_entry(rhs, Some(value), function)
                 );
               }
               (
@@ -402,8 +441,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
               ) => {
                 return format!(
                   "{} || ({})",
-                  self.format_stack_entry(lhs, function),
-                  self.format_stack_entry(rhs, function)
+                  self.format_stack_entry(lhs, Some(value), function),
+                  self.format_stack_entry(rhs, Some(value), function)
                 );
               }
               _ => "||"
@@ -412,16 +451,16 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           BinaryOperator::BitTest => {
             return format!(
               "BitTest({lhs}, {rhs})",
-              lhs = self.format_stack_entry(lhs, function),
-              rhs = self.format_stack_entry(rhs, function)
+              lhs = self.format_stack_entry(lhs, Some(value), function),
+              rhs = self.format_stack_entry(rhs, Some(value), function)
             )
           }
         };
 
         format!(
           "{lhs} {op} {rhs}",
-          lhs = self.format_stack_entry(lhs, function),
-          rhs = self.format_stack_entry(rhs, function)
+          lhs = self.format_stack_entry(lhs, Some(value), function),
+          rhs = self.format_stack_entry(rhs, Some(value), function)
         )
       }
       StackEntry::UnaryOperator { lhs, op, .. } => {
@@ -430,21 +469,24 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           UnaryOperator::Negate => "-"
         };
 
-        format!("{op}({})", self.format_stack_entry(lhs, function))
+        format!(
+          "{op}({})",
+          self.format_stack_entry(lhs, Some(value), function)
+        )
       }
       StackEntry::Cast { source } => {
-        // let ty = match ty {
-        //   Type::Int => "int",
-        //   Type::Float => "float",
-        //   Type::Bool => "bool",
-        //   Type::String | Type::Pointer(_) | Type::Array(_, _) | Type::Struct | Type::Unknown => {
-        //     panic!("unsupported cast")
-        //   }
-        // };
-        let ty = "UNK";
-        format!("({ty}){}", self.format_stack_entry(source, function))
+        let ty = self.format_type(&value.ty.borrow());
+        format!(
+          "({ty}){}",
+          self.format_stack_entry(source, Some(value), function)
+        )
       }
-      StackEntry::StringHash(str) => format!("HASH({})", self.format_stack_entry(str, function)),
+      StackEntry::StringHash(str) => {
+        format!(
+          "HASH({})",
+          self.format_stack_entry(str, Some(value), function)
+        )
+      }
       StackEntry::FunctionCallResult {
         args,
         function_address,
@@ -453,7 +495,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       StackEntry::NativeCallResult {
         args, native_hash, ..
       } => self.format_native_call(*native_hash, args, function),
-      StackEntry::Struct { origin, .. } => self.format_stack_entry(origin, function)
+      StackEntry::Struct { origin, .. } => self.format_stack_entry(origin, Some(value), function)
     }
   }
 
@@ -465,7 +507,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   ) -> String {
     let args = args
       .iter()
-      .map(|arg| format!("{}", self.format_stack_entry(arg, function)))
+      .map(|arg| format!("{}", self.format_stack_entry(arg, None, function)))
       .join(", ");
     let function = self
       .functions
@@ -483,7 +525,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   ) -> String {
     let args = args
       .iter()
-      .map(|arg| format!("{}", self.format_stack_entry(arg, function)))
+      .map(|arg| format!("{}", self.format_stack_entry(arg, None, function)))
       .join(", ");
     format!("unk_0x{native_hash:016X}({args})")
   }

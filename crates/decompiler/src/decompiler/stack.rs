@@ -220,7 +220,7 @@ impl Stack {
 
   pub fn push_vector_binary_operator(
     &mut self,
-    op: BinaryOperator
+    _op: BinaryOperator
   ) -> Result<(), InvalidStackError> {
     todo!();
 
@@ -465,8 +465,7 @@ impl Stack {
       .stack
       .iter()
       .rev()
-      .skip(n)
-      .next()
+      .nth(n)
       .ok_or(InvalidStackError)?
       .clone();
 

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, println, rc::Rc};
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Primitives {
@@ -223,7 +223,7 @@ impl LinkedValueType {
   pub fn get_concrete(&self) -> ValueTypeInfo {
     match self {
       LinkedValueType::Type(t) => t.clone(),
-      LinkedValueType::Redirect(r) => r.borrow().get_concrete().clone()
+      LinkedValueType::Redirect(r) => r.borrow().get_concrete()
     }
   }
 

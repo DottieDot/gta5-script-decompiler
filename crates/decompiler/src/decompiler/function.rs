@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, println, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
   decompiler::{
@@ -42,9 +42,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   pub fn new(info: FunctionInfo<'input, 'bytes>) -> Self {
     let graph = FunctionGraph::generate(&info);
     Self {
-      name:         info.name,
-      location:     info.location,
-      parameters:   (0..info.parameters)
+      name: info.name,
+      location: info.location,
+      parameters: (0..info.parameters)
         .map(|_| {
           LinkedValueType::Type(ValueTypeInfo {
             ty:         ValueType::Primitive(Primitives::Unknown),
@@ -53,7 +53,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           .make_shared()
         })
         .collect(),
-      locals:       (0..info.locals)
+      locals: (0..info.locals)
         .map(|_| {
           LinkedValueType::Type(ValueTypeInfo {
             ty:         ValueType::Primitive(Primitives::Unknown),
@@ -62,7 +62,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           .make_shared()
         })
         .collect(),
-      returns:      match info.returns {
+      returns: match info.returns {
         0 => None,
         1 => {
           Some(
@@ -94,7 +94,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         }
       },
       instructions: info.instructions,
-      graph:        graph
+      graph
     }
   }
 
@@ -1091,10 +1091,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::PushConstU24 { c1 } => stack.push_int(*c1 as i64),
         Instruction::String => stack.push_string()?,
         Instruction::StringHash => stack.push_string_hash()?,
-        Instruction::TextLabelAssignString { buffer_size } => todo!(),
-        Instruction::TextLabelAssignInt { buffer_size } => todo!(),
-        Instruction::TextLabelAppendString { buffer_size } => todo!(),
-        Instruction::TextLabelAppendInt { buffer_size } => todo!(),
+        Instruction::TextLabelAssignString { .. } => todo!(),
+        Instruction::TextLabelAssignInt { .. } => todo!(),
+        Instruction::TextLabelAppendString { .. } => todo!(),
+        Instruction::TextLabelAppendInt { .. } => todo!(),
         Instruction::TextLabelCopy => todo!(),
         Instruction::Catch => stack.push_catch(),
         Instruction::Throw => {

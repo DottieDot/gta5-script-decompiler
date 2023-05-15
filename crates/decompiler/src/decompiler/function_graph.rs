@@ -10,7 +10,7 @@ use petgraph::{
   algo::dominators::{simple_fast, Dominators},
   graph::NodeIndex,
   prelude::DiGraph,
-  visit::{EdgeRef, GraphBase, IntoNodeIdentifiers, IntoNodeReferences},
+  visit::{EdgeRef, IntoNodeIdentifiers, IntoNodeReferences},
   Direction
 };
 
@@ -82,12 +82,12 @@ impl ControlFlow {
     }
   }
 
-  pub fn after(&self) -> Option<&Box<ControlFlow>> {
+  pub fn after(&self) -> Option<&ControlFlow> {
     match self {
       ControlFlow::If { after, .. }
       | ControlFlow::IfElse { after, .. }
       | ControlFlow::WhileLoop { after, .. }
-      | ControlFlow::Switch { after, .. } => after.as_ref(),
+      | ControlFlow::Switch { after, .. } => after.as_ref().map(|bx| bx.as_ref()),
       ControlFlow::AndOr { after, .. } | ControlFlow::Flow { after, .. } => Some(after),
       ControlFlow::Continue { .. } | ControlFlow::Break { .. } | ControlFlow::Leaf { .. } => None
     }
@@ -337,13 +337,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           }
         } else if self.frontiers[cond_jmp].contains(cond_flow) {
           panic!("inverse if statements are not supported");
-        } else if self.frontiers[cond_flow].contains(cond_jmp) {
-          ControlFlow::If {
-            node,
-            then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_jmp) }))),
-            after: Some(Box::new(self.node_control_flow(*cond_jmp, parents)))
-          }
-        }else if self.frontiers[cond_flow].is_empty()  {
+        } else if self.frontiers[cond_flow].is_empty() ||self.frontiers[cond_flow].contains(cond_jmp)   {
           ControlFlow::If {
             node,
             then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_jmp) }))),
@@ -411,11 +405,11 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         bubble_sort_by(&mut cases, |(a, _), (b, _)| {
           let a_frontiers_b = self.frontiers
             .get(a)
-            .map(|front| front.contains(&b))
+            .map(|front| front.contains(b))
             .unwrap_or_default();
           let b_frontiers_a = self.frontiers
             .get(b)
-            .map(|front| front.contains(&a))
+            .map(|front| front.contains(a))
             .unwrap_or_default();
           match (a_frontiers_b, b_frontiers_a) {
             (true, true) => panic!("circular switch case"),
@@ -532,12 +526,10 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     target: NodeIndex,
     parents: ParentedList<'_, FlowParentType>
   ) -> Option<NodeIndex> {
-    let mut iter = parents.iter();
-
     let mut loop_node = None;
     let mut after_node = None;
 
-    while let Some(parent) = iter.next() {
+    for parent in parents.iter() {
       match parent {
         FlowParentType::Loop { node, .. } if *node == target => {
           loop_node = Some(*node);
@@ -619,8 +611,8 @@ fn get_destinations(instructions: &[InstructionInfo]) -> HashSet<usize> {
 // https://github.com/m4b/petgraph/blob/9a6af51bf9803414d68e27f5e8d08600ce2a6212/src/algo/dominators.rs#L90
 fn domination_frontiers<N: Debug, E>(
   graph: &DiGraph<N, E>,
-  dominators: &Dominators<<DiGraph<N, E> as GraphBase>::NodeId>
-) -> HashMap<<DiGraph<N, E> as GraphBase>::NodeId, HashSet<<DiGraph<N, E> as GraphBase>::NodeId>> {
+  dominators: &Dominators<NodeIndex>
+) -> HashMap<NodeIndex, HashSet<NodeIndex>> {
   let mut frontiers = HashMap::from_iter(graph.node_identifiers().map(|v| (v, HashSet::default())));
 
   for node in graph.node_identifiers() {

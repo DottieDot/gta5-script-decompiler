@@ -91,7 +91,7 @@ fn main() -> anyhow::Result<()> {
   // let decompiled = func.decompile(&script, &function_map, &statics, &mut globals)?;
   // let formatted = cpp_formatter.format_function(&decompiled);
 
-  let decompiled = functions[645..714]
+  let decompiled = functions[641..716]
     .iter()
     .map(|func| {
       println!("{}", func.name);

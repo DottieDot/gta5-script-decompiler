@@ -10,15 +10,10 @@ impl CodeBuilder {
     self.code
   }
 
-  pub fn code(&mut self, text: &str) -> &mut Self {
-    self.code.push_str(&text.replace("\n", &self.indent_string));
-    self
-  }
-
   pub fn line(&mut self, text: &str) -> &mut Self {
     self.code.push_str(&self.indent_string);
     self.code.push_str(text);
-    self.code.push_str("\n");
+    self.code.push('\n');
     self
   }
 

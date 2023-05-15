@@ -248,11 +248,8 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       }
       StackEntry::StructField { source, field } => {
         if let StackEntry::Deref(deref) = &source.entry {
-          match &deref.entry {
-            StackEntry::Ref(rf) => {
-              return format!("{}->f_{field}", self.format_stack_entry(rf, function))
-            }
-            _ => {}
+          if let StackEntry::Ref(rf) = &deref.entry {
+            return format!("{}->f_{field}", self.format_stack_entry(rf, function));
           }
         }
         format!("{}.f_{field}", self.format_stack_entry(source, function))
@@ -463,7 +460,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   fn format_function_call(
     &self,
     address: usize,
-    args: &Vec<StackEntryInfo>,
+    args: &[StackEntryInfo],
     function: &DecompiledFunction
   ) -> String {
     let args = args
@@ -481,7 +478,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   fn format_native_call(
     &self,
     native_hash: u64,
-    args: &Vec<StackEntryInfo>,
+    args: &[StackEntryInfo],
     function: &DecompiledFunction
   ) -> String {
     let args = args
@@ -502,6 +499,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
     }
   }
 
+  #[allow(clippy::only_used_in_recursion)]
   fn format_type(&self, ty: &LinkedValueType) -> String {
     let ty = ty.get_concrete();
 
@@ -515,7 +513,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
         format!("struct<{fields}>")
       }
       ValueType::Array { item_type } => format!("{}[]", self.format_type(&item_type.borrow())),
-      ValueType::Function { params, returns } => todo!(),
+      ValueType::Function { .. } => todo!(),
       ValueType::Primitive(primitive) => {
         match primitive {
           Primitives::Float => "float".to_owned(),

@@ -102,7 +102,10 @@ fn main() -> anyhow::Result<()> {
     .collect::<Vec<_>>();
   let code = decompiled
     .iter()
-    .map(|func| cpp_formatter.format_function(func))
+    .map(|func| {
+      println!("{}", func.name);
+      cpp_formatter.format_function(func)
+    })
     .collect::<Vec<_>>()
     .join("\n");
 

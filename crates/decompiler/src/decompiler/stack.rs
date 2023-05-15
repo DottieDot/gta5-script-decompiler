@@ -56,8 +56,8 @@ impl Stack {
   }
 
   pub fn push_offset(&mut self) -> Result<(), InvalidStackError> {
-    let source = Box::new(self.pop()?);
     let offset = Box::new(self.pop()?);
+    let source = Box::new(self.pop()?);
 
     self.stack.push_back(StackEntryInfo {
       entry: StackEntry::Offset { source, offset },
@@ -372,10 +372,12 @@ impl Stack {
     let mut args: Vec<StackEntryInfo> = self.pop_n(function.parameters.len())?;
     args.reverse();
 
+    let mut param_iter = function.parameters.iter();
     for arg in &args {
-      for param in &function.parameters {
+      if let Some(param) = param_iter.next() {
         LinkedValueType::link(&arg.ty, param);
       }
+      let _ = param_iter.advance_by(arg.entry.size());
     }
 
     self.stack.push_back(StackEntryInfo {
@@ -413,7 +415,9 @@ impl Stack {
       },
       ty:    {
         let mut ty = LinkedValueType::new_primitive(Primitives::Unknown);
-        ty.confidence(Confidence::Medium);
+        if return_count > 1 {
+          ty.confidence(Confidence::Medium);
+        }
         ty.struct_size(return_count);
         ty.make_shared()
       }

@@ -41,7 +41,11 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
 
     let mut iter = function.params.iter().enumerate();
     while let Some((i, p)) = iter.next() {
-      args.push(format!("{} parameter_{i}", self.format_type(&p.borrow())));
+      args.push(format!(
+        "{} {} /* {i} */",
+        self.format_type(&p.borrow()),
+        self.format_local(i, function)
+      ));
       let _ = iter.advance_by(p.borrow().size() - 1);
     }
     format!(
@@ -59,7 +63,12 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
   fn declare_locals(&self, function: &DecompiledFunction, builder: &mut CodeBuilder) {
     let mut iter = function.locals.iter().enumerate();
     while let Some((i, p)) = iter.next() {
-      builder.line(&format!("{} local_{i};", self.format_type(&p.borrow())));
+      builder.line(&format!(
+        "{} {} /* {} */;",
+        self.format_type(&p.borrow()),
+        self.format_local(function.params.len() + 2 + i, function),
+        function.params.len() + 2 + i
+      ));
       let _ = iter.advance_by(p.borrow().size() - 1);
     }
 

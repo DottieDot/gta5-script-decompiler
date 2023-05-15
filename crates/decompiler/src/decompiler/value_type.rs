@@ -47,7 +47,9 @@ pub enum LinkedValueType {
 
 impl LinkedValueType {
   pub fn link(a: &Rc<RefCell<LinkedValueType>>, b: &Rc<RefCell<LinkedValueType>>) {
-    if Rc::ptr_eq(&Self::get_concrete_ptr(a), &Self::get_concrete_ptr(b)) {
+    let a_concrete_ptr = Self::get_concrete_ptr(a);
+    let b_concrete_ptr = Self::get_concrete_ptr(b);
+    if Rc::ptr_eq(&a_concrete_ptr, &b_concrete_ptr) {
       return;
     }
 
@@ -55,9 +57,9 @@ impl LinkedValueType {
     let b_concrete = b.borrow().get_concrete();
 
     if a_concrete.confidence > b_concrete.confidence {
-      *b.borrow_mut() = LinkedValueType::Redirect(a.clone())
+      *b_concrete_ptr.borrow_mut() = LinkedValueType::Redirect(a.clone())
     } else {
-      *a.borrow_mut() = LinkedValueType::Redirect(b.clone())
+      *a_concrete_ptr.borrow_mut() = LinkedValueType::Redirect(b.clone())
     }
   }
 

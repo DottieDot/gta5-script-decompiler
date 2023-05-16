@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
   // - 6294 (switch)
   // - 686 (disconnected loop)
   // TODO:
-  let func = &functions[812];
+  let func = &functions[40];
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     false,
@@ -91,7 +91,7 @@ fn main() -> anyhow::Result<()> {
   // let decompiled = func.decompile(&script, &function_map, &statics, &mut globals)?;
   // let formatted = cpp_formatter.format_function(&decompiled);
 
-  let decompiled = functions[641..716]
+  let decompiled = functions[0..25]
     .iter()
     .map(|func| {
       println!("{}", func.name);

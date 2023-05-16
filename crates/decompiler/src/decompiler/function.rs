@@ -1,4 +1,5 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use petgraph::graph::NodeIndex;
+use std::{cell::RefCell, collections::HashMap, println, rc::Rc};
 
 use crate::{
   decompiler::{
@@ -12,9 +13,9 @@ use crate::{
 
 use super::{
   decompiled::{DecompiledFunction, StatementInfo},
-  function_graph::{ControlFlow, FunctionGraph},
+  function_graph::FunctionGraph,
   stack::{InvalidStackError, Stack},
-  Confidence, LinkedValueType, Primitives, ScriptGlobals, ScriptStatics, StackEntry,
+  Confidence, ControlFlow, LinkedValueType, Primitives, ScriptGlobals, ScriptStatics, StackEntry,
   StackEntryInfo, ValueType, ValueTypeInfo
 };
 
@@ -112,14 +113,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   ) -> Result<DecompiledFunction<'input, 'bytes>, InvalidStackError> {
     let flow = self.graph.reconstruct_control_flow();
 
-    let (statements, _) = self.decompile_node(
-      script,
-      functions,
-      &flow,
-      Default::default(),
-      statics,
-      globals
-    )?;
+    let statements = self.decompile_iteratively(&flow, script, functions, statics, globals)?;
 
     self.add_statement_types(&statements);
 
@@ -132,16 +126,193 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     })
   }
 
+  pub fn decompile_iteratively(
+    &self,
+    root: &ControlFlow,
+    script: &Script,
+    functions: &HashMap<usize, Function>,
+    statics: &ScriptStatics,
+    globals: &mut ScriptGlobals
+  ) -> Result<Vec<StatementInfo<'input, 'bytes>>, InvalidStackError> {
+    let mut statements: HashMap<
+      NodeIndex,
+      (
+        Vec<StatementInfo>,
+        Option<StackEntryInfo>,
+        &[InstructionInfo]
+      )
+    > = Default::default();
+    let mut stack = Stack::default();
+
+    root.dfs_in_order(|flow| {
+      let (node_statements, conditional, _) = statements.entry(flow.node()).or_insert_with(|| {
+        (
+          Default::default(),
+          Default::default(),
+          &self.instructions[0..0]
+        )
+      });
+      *conditional = self.decompile_node(
+        node_statements,
+        &mut stack,
+        script,
+        functions,
+        flow,
+        statics,
+        globals
+      )?;
+      Ok(())
+    })?;
+
+    root.dfs_post_order::<InvalidStackError>(|flow| {
+      Self::combine_control_flow(flow, &mut statements);
+      Ok(())
+    })?;
+
+    Ok(statements.remove(&root.node()).expect("no root").0)
+  }
+
+  fn combine_control_flow<'i, 'b>(
+    flow: &ControlFlow,
+    statements: &mut HashMap<
+      NodeIndex,
+      (
+        Vec<StatementInfo<'i, 'b>>,
+        Option<StackEntryInfo>,
+        &'i [InstructionInfo<'b>]
+      )
+    >
+  ) {
+    match flow {
+      ControlFlow::If { then, .. } => {
+        let then = statements
+          .remove(&then.node())
+          .expect("flow statement already consumed")
+          .0;
+
+        let (node_statements, conditional, trailing_instructions) = statements
+          .get_mut(&flow.node())
+          .expect("flow not visited in order");
+
+        node_statements.push(StatementInfo {
+          instructions: trailing_instructions,
+          statement:    Statement::If {
+            condition: conditional.take().unwrap(),
+            then
+          }
+        });
+      }
+      ControlFlow::IfElse { then, els, .. } => {
+        let then = statements
+          .remove(&then.node())
+          .expect("flow statement already consumed")
+          .0;
+        let els = statements
+          .remove(&els.node())
+          .expect("flow statement already consumed")
+          .0;
+
+        let (node_statements, conditional, trailing_instructions) = statements
+          .get_mut(&flow.node())
+          .expect("flow not visited in order");
+
+        node_statements.push(StatementInfo {
+          instructions: trailing_instructions,
+          statement:    Statement::IfElse {
+            condition: conditional.take().unwrap(),
+            then,
+            els
+          }
+        });
+      }
+      ControlFlow::WhileLoop { body, .. } => {
+        let body = statements
+          .remove(&body.node())
+          .expect("flow statement already consumed")
+          .0;
+
+        let (node_statements, conditional, trailing_instructions) = statements
+          .get_mut(&flow.node())
+          .expect("flow not visited in order");
+
+        node_statements.push(StatementInfo {
+          instructions: trailing_instructions,
+          statement:    Statement::WhileLoop {
+            condition: conditional.take().unwrap(),
+            body
+          }
+        });
+      }
+      ControlFlow::Switch { cases, .. } => {
+        let cases = cases
+          .iter()
+          .map(|(case, values)| {
+            (
+              statements
+                .remove(&case.node())
+                .expect("flow statement already consumed")
+                .0,
+              values.clone()
+            )
+          })
+          .collect();
+
+        let (node_statements, conditional, trailing_instructions) = statements
+          .get_mut(&flow.node())
+          .expect("flow not visited in order");
+
+        node_statements.push(StatementInfo {
+          instructions: trailing_instructions,
+          statement:    Statement::Switch {
+            condition: conditional.take().unwrap(),
+            cases
+          }
+        });
+      }
+      ControlFlow::AndOr { with, .. } => {
+        let with = statements
+          .remove(&with.node())
+          .expect("flow statement already consumed");
+
+        // TODO: Trailing instructions
+        let (node_statements, conditional, _) = statements
+          .get_mut(&flow.node())
+          .expect("flow not visited in order");
+
+        node_statements.extend(with.0);
+        *conditional = with.1;
+      }
+      ControlFlow::Flow { .. }
+      | ControlFlow::Break { .. }
+      | ControlFlow::Continue { .. }
+      | ControlFlow::Leaf { .. } => {}
+    }
+
+    if let Some(after) = flow.after() {
+      let after = statements
+        .remove(&after.node())
+        .expect("flow statement already consumed");
+
+      // TODO: Trailing instructions
+      let (node_statements, conditional, _) = statements
+        .get_mut(&flow.node())
+        .expect("flow not visited in order");
+
+      node_statements.extend(after.0);
+      *conditional = after.1;
+    }
+  }
+
   fn decompile_node(
     &self,
+    statements: &mut Vec<StatementInfo<'input, 'bytes>>,
+    stack: &mut Stack,
     script: &Script,
     functions: &HashMap<usize, Function>,
     flow: &ControlFlow,
-    mut stack: Stack,
     statics: &ScriptStatics,
     globals: &mut ScriptGlobals
-  ) -> Result<(Vec<StatementInfo<'input, 'bytes>>, Stack), InvalidStackError> {
-    let mut statements: Vec<StatementInfo> = Default::default();
+  ) -> Result<Option<StackEntryInfo>, InvalidStackError> {
     let node = self.graph.get_node(flow.node()).unwrap();
 
     for (index, info) in node.instructions.iter().enumerate() {
@@ -949,54 +1120,15 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           }
 
           match &flow {
-            ControlFlow::If { then, .. } => {
-              statements.push(StatementInfo {
-                instructions: &self.instructions[index..=index],
-                statement:    Statement::If {
-                  condition: stack.pop()?,
-                  then:      self
-                    .decompile_node(script, functions, then, stack.clone(), statics, globals)?
-                    .0
-                }
-              })
+            ControlFlow::If { .. }
+            | ControlFlow::IfElse { .. }
+            | ControlFlow::WhileLoop { .. }
+            | ControlFlow::Switch { .. } => {
+              return Ok(Some(stack.pop()?));
             }
-            ControlFlow::IfElse { then, els, .. } => {
-              statements.push(StatementInfo {
-                instructions: &self.instructions[index..=index],
-                statement:    Statement::IfElse {
-                  condition: stack.pop()?,
-                  then:      self
-                    .decompile_node(script, functions, then, stack.clone(), statics, globals)?
-                    .0,
-                  els:       self
-                    .decompile_node(script, functions, els, stack.clone(), statics, globals)?
-                    .0
-                }
-              })
-            }
-            ControlFlow::Leaf { .. } | ControlFlow::Flow { .. } => {}
-            ControlFlow::AndOr { with, .. } => {
+            ControlFlow::AndOr { .. } => {
               stack.pop()?;
-              match with.as_ref() {
-                ControlFlow::AndOr { .. } | ControlFlow::Leaf { .. } => {
-                  stack = self
-                    .decompile_node(script, functions, with, stack, statics, globals)?
-                    .1;
-                }
-                _ => panic!("unexpected node in AndOr chain")
-              };
-              stack.try_make_bitwise_logical()?;
-            }
-            ControlFlow::WhileLoop { body, .. } => {
-              statements.push(StatementInfo {
-                instructions: &self.instructions[index..=index],
-                statement:    Statement::WhileLoop {
-                  condition: stack.pop()?,
-                  body:      self
-                    .decompile_node(script, functions, body, stack.clone(), statics, globals)?
-                    .0
-                }
-              })
+              return Ok(None);
             }
             ControlFlow::Break { .. } => {
               statements.push(StatementInfo {
@@ -1010,25 +1142,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                 statement:    Statement::Continue
               })
             }
-            ControlFlow::Switch { cases, .. } => {
-              statements.push(StatementInfo {
-                instructions: &self.instructions[index..=index],
-                statement:    Statement::Switch {
-                  condition: stack.pop()?,
-                  cases:     cases
-                    .iter()
-                    .map(|(body, cases)| {
-                      Ok((
-                        self
-                          .decompile_node(script, functions, body, stack.clone(), statics, globals)?
-                          .0,
-                        cases.clone()
-                      ))
-                    })
-                    .collect::<Result<_, _>>()?
-                }
-              })
-            }
+            ControlFlow::Leaf { .. } | ControlFlow::Flow { .. } => {}
           };
         }
         Instruction::FunctionCall { location } => {
@@ -1091,11 +1205,64 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::PushConstU24 { c1 } => stack.push_int(*c1 as i64),
         Instruction::String => stack.push_string()?,
         Instruction::StringHash => stack.push_string_hash()?,
-        Instruction::TextLabelAssignString { .. } => todo!(),
-        Instruction::TextLabelAssignInt { .. } => todo!(),
-        Instruction::TextLabelAppendString { .. } => todo!(),
-        Instruction::TextLabelAppendInt { .. } => todo!(),
-        Instruction::TextLabelCopy => todo!(),
+        Instruction::TextLabelAssignString { buffer_size } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::StringCopy {
+              destination: stack.pop()?,
+              string:      stack.pop()?,
+              max_length:  *buffer_size as usize
+            }
+          })
+        }
+        Instruction::TextLabelAssignInt { buffer_size } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::IntToString {
+              destination: stack.pop()?,
+              int:         stack.pop()?,
+              max_length:  *buffer_size as usize
+            }
+          })
+        }
+        Instruction::TextLabelAppendString { buffer_size } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::StringConcat {
+              destination: stack.pop()?,
+              string:      stack.pop()?,
+              max_length:  *buffer_size as usize
+            }
+          })
+        }
+        Instruction::TextLabelAppendInt { buffer_size } => {
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::StringIntConcat {
+              destination: stack.pop()?,
+              int:         stack.pop()?,
+              max_length:  *buffer_size as usize
+            }
+          })
+        }
+        Instruction::TextLabelCopy => {
+          let destination = stack.pop()?;
+          let buffer_size = stack.pop()?;
+          let StackEntry::Int(count) = stack.pop()?.entry else {
+            Err(InvalidStackError)?
+          };
+          let source = stack.pop_n(count as usize)?;
+
+          statements.push(StatementInfo {
+            instructions: &self.instructions[index..=index],
+            statement:    Statement::MemCopy {
+              destination,
+              source,
+              buffer_size,
+              count: count as usize
+            }
+          })
+        }
         Instruction::Catch => stack.push_catch(),
         Instruction::Throw => {
           statements.push(StatementInfo {
@@ -1141,14 +1308,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
       };
     }
 
-    if let Some(after) = flow.after() {
-      let (new_statements, new_stack) =
-        self.decompile_node(script, functions, after, stack.clone(), statics, globals)?;
-      statements.extend(new_statements);
-      stack = new_stack;
-    }
-
-    Ok((statements, stack))
+    Ok(None)
   }
 
   pub fn local_index_type(&self, index: usize) -> Option<&Rc<RefCell<LinkedValueType>>> {
@@ -1234,6 +1394,88 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         }
         Statement::Break => {}
         Statement::Continue => {}
+        Statement::StringCopy {
+          destination,
+          string,
+          ..
+        } => {
+          destination.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Ref(
+              LinkedValueType::Type(ValueTypeInfo {
+                ty:         ValueType::Primitive(Primitives::String),
+                confidence: Confidence::High
+              })
+              .make_shared()
+            ),
+            confidence: Confidence::High
+          });
+          string.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::String),
+            confidence: Confidence::High
+          });
+        }
+        Statement::IntToString {
+          destination, int, ..
+        } => {
+          destination.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Ref(
+              LinkedValueType::Type(ValueTypeInfo {
+                ty:         ValueType::Primitive(Primitives::String),
+                confidence: Confidence::High
+              })
+              .make_shared()
+            ),
+            confidence: Confidence::High
+          });
+          int.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Int),
+            confidence: Confidence::High
+          });
+        }
+        Statement::StringConcat {
+          destination,
+          string,
+          ..
+        } => {
+          destination.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Ref(
+              LinkedValueType::Type(ValueTypeInfo {
+                ty:         ValueType::Primitive(Primitives::String),
+                confidence: Confidence::High
+              })
+              .make_shared()
+            ),
+            confidence: Confidence::High
+          });
+          string.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::String),
+            confidence: Confidence::High
+          });
+        }
+        Statement::StringIntConcat {
+          destination, int, ..
+        } => {
+          destination.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Ref(
+              LinkedValueType::Type(ValueTypeInfo {
+                ty:         ValueType::Primitive(Primitives::String),
+                confidence: Confidence::High
+              })
+              .make_shared()
+            ),
+            confidence: Confidence::High
+          });
+          int.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Int),
+            confidence: Confidence::High
+          });
+        }
+        Statement::MemCopy { buffer_size, .. } => {
+          buffer_size.ty.borrow_mut().hint(ValueTypeInfo {
+            ty:         ValueType::Primitive(Primitives::Int),
+            confidence: Confidence::High
+          });
+        }
       }
     }
   }

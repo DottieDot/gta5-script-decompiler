@@ -2,7 +2,7 @@
 members = ["./crates/decompiler", "./crates/cli"]
 
 [profile.dev]
-opt-level = 3
+opt-level = 0
 
 [profile.release]
 debug = true

@@ -233,6 +233,75 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       Statement::Continue => {
         builder.line("continue;");
       }
+      Statement::StringCopy {
+        destination,
+        string,
+        max_length
+      } => {
+        builder.line(&format!(
+          "string_copy({}, {}, {max_length});",
+          self.format_stack_entry(destination, None, function),
+          self.format_stack_entry(string, None, function)
+        ));
+      }
+      Statement::IntToString {
+        destination,
+        int,
+        max_length
+      } => {
+        builder.line(&format!(
+          "int_to_string({}, {}, {max_length});",
+          self.format_stack_entry(destination, None, function),
+          self.format_stack_entry(int, None, function)
+        ));
+      }
+      Statement::StringConcat {
+        destination,
+        string,
+        max_length
+      } => {
+        builder.line(&format!(
+          "string_concat({}, {}, {max_length});",
+          self.format_stack_entry(destination, None, function),
+          self.format_stack_entry(string, None, function)
+        ));
+      }
+      Statement::StringIntConcat {
+        destination,
+        int,
+        max_length
+      } => {
+        builder.line(&format!(
+          "string_int_concat({}, {}, {max_length});",
+          self.format_stack_entry(destination, None, function),
+          self.format_stack_entry(int, None, function)
+        ));
+      }
+      Statement::MemCopy {
+        destination,
+        source,
+        buffer_size,
+        ..
+      } => {
+        builder.line(&format!(
+          "mem_copy({}, {}, {});",
+          self.format_stack_entry(destination, None, function),
+          {
+            match &source[..] {
+              [] => "{}".to_owned(),
+              [value] => self.format_stack_entry(value, None, function),
+              values => {
+                let joined = values
+                  .iter()
+                  .map(|value| self.format_stack_entry(value, None, function))
+                  .join(", ");
+                format!("{{ {joined} }}")
+              }
+            }
+          },
+          self.format_stack_entry(buffer_size, None, function)
+        ));
+      }
     }
   }
 

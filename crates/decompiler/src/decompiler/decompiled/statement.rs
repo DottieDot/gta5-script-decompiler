@@ -1,5 +1,5 @@
 use crate::{
-  decompiler::{function_graph::CaseValue, StackEntryInfo},
+  decompiler::{control_flow::CaseValue, StackEntryInfo},
   disassembler::InstructionInfo
 };
 
@@ -40,6 +40,32 @@ pub enum Statement<'i, 'b> {
   Switch {
     condition: StackEntryInfo,
     cases:     Vec<(Vec<StatementInfo<'i, 'b>>, Vec<CaseValue>)>
+  },
+  StringCopy {
+    destination: StackEntryInfo,
+    string:      StackEntryInfo,
+    max_length:  usize
+  },
+  IntToString {
+    destination: StackEntryInfo,
+    int:         StackEntryInfo,
+    max_length:  usize
+  },
+  StringConcat {
+    destination: StackEntryInfo,
+    string:      StackEntryInfo,
+    max_length:  usize
+  },
+  StringIntConcat {
+    destination: StackEntryInfo,
+    int:         StackEntryInfo,
+    max_length:  usize
+  },
+  MemCopy {
+    destination: StackEntryInfo,
+    source:      Vec<StackEntryInfo>,
+    buffer_size: StackEntryInfo,
+    count:       usize
   },
   Break,
   Continue

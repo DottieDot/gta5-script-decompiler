@@ -8,6 +8,7 @@ use crate::{
 
 use self::{decompiled::DecompiledFunction, stack::InvalidStackError};
 
+mod control_flow;
 pub mod decompiled;
 mod function;
 mod function_graph;
@@ -17,8 +18,8 @@ mod stack;
 mod stack_entry;
 mod value_type;
 
+pub use control_flow::*;
 pub use function::*;
-pub use function_graph::CaseValue;
 pub use script_globals::*;
 pub use script_statics::*;
 pub use stack_entry::*;

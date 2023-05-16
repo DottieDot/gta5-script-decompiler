@@ -3,7 +3,9 @@
   if_let_guard,
   map_try_insert,
   int_roundings,
-  iter_advance_by
+  iter_advance_by,
+  error_generic_member_access,
+  provide_any
 )]
 
 mod common;

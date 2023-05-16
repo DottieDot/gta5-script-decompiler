@@ -39,10 +39,10 @@ fn main() -> anyhow::Result<()> {
   // - 6294 (switch)
   // - 686 (disconnected loop)
   // TODO:
-  let func = &functions[40];
+  let func = &functions[1296];
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
-    false,
+    true,
     0,
     &script.strings
   ));
@@ -91,19 +91,23 @@ fn main() -> anyhow::Result<()> {
   // let decompiled = func.decompile(&script, &function_map, &statics, &mut globals)?;
   // let formatted = cpp_formatter.format_function(&decompiled);
 
-  let decompiled = functions[0..25]
+  let decompiled = functions[1296..]
     .iter()
-    .map(|func| {
+    .filter_map(|func| {
       println!("{}", func.name);
-      func
-        .decompile(&script, &function_map, &statics, &mut globals)
-        .unwrap()
+      match func.decompile(&script, &function_map, &statics, &mut globals) {
+        Ok(d) => Some(d),
+        Err(e) => {
+          println!("{e:#?}");
+          None
+        }
+      }
     })
     .collect::<Vec<_>>();
   let code = decompiled
     .iter()
     .map(|func| {
-      println!("{}", func.name);
+      // println!("{}", func.name);
       cpp_formatter.format_function(func)
     })
     .collect::<Vec<_>>()

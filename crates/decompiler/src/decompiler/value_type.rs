@@ -70,6 +70,19 @@ impl LinkedValueType {
     })
   }
 
+  pub fn new_vector3() -> Self {
+    Self::Type(ValueTypeInfo {
+      ty:         ValueType::Struct {
+        fields: vec![
+          Self::new_primitive(Primitives::Float).make_shared(),
+          Self::new_primitive(Primitives::Float).make_shared(),
+          Self::new_primitive(Primitives::Float).make_shared(),
+        ]
+      },
+      confidence: Confidence::High
+    })
+  }
+
   pub fn new_ref(ref_type: Rc<RefCell<LinkedValueType>>) -> Self {
     Self::Type(ValueTypeInfo {
       ty:         ValueType::Ref(ref_type),
@@ -116,8 +129,9 @@ impl LinkedValueType {
     }
   }
 
-  pub fn struct_field(&mut self, field: usize) -> Rc<RefCell<Self>> {
-    match self {
+  pub fn struct_field(info: &Rc<RefCell<Self>>, field: usize) -> Rc<RefCell<Self>> {
+    let borrowed: &mut Self = &mut info.borrow_mut();
+    match borrowed {
       LinkedValueType::Type(t) => {
         if let ValueType::Struct { fields } = &mut t.ty {
           if fields.len() <= field {
@@ -126,7 +140,7 @@ impl LinkedValueType {
             });
           }
           fields[field].clone()
-        } else {
+        } else if field > 0 {
           let mut fields = (0..field + 1)
             .map(|_| Self::new_primitive(Primitives::Unknown).make_shared())
             .collect::<Vec<_>>();
@@ -137,9 +151,11 @@ impl LinkedValueType {
             confidence: Confidence::Medium
           };
           field
+        } else {
+          info.clone()
         }
       }
-      LinkedValueType::Redirect(r) => r.borrow_mut().struct_field(field)
+      LinkedValueType::Redirect(r) => Self::struct_field(r, field)
     }
   }
 

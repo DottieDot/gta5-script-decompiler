@@ -34,6 +34,7 @@ pub enum StackEntry {
   Global(usize),
   Deref(Box<StackEntryInfo>),
   Ref(Box<StackEntryInfo>),
+  FloatToVector(Box<StackEntryInfo>),
   CatchValue,
   BinaryOperator {
     lhs: Box<StackEntryInfo>,
@@ -82,7 +83,7 @@ impl StackEntryInfo {
             source: origin.clone(),
             field:  *size
           },
-          ty:    self.ty.borrow_mut().struct_field(*size)
+          ty:    LinkedValueType::struct_field(&self.ty, *size)
         };
         (field, Some(self))
       }
@@ -93,7 +94,7 @@ impl StackEntryInfo {
             source: Box::new(cloned),
             field:  values.len()
           },
-          ty:    self.ty.borrow_mut().struct_field(values.len())
+          ty:    LinkedValueType::struct_field(&self.ty, values.len())
         };
         (field, Some(self))
       }
@@ -105,7 +106,7 @@ impl StackEntryInfo {
             source: Box::new(cloned),
             field:  field_index
           },
-          ty:    self.ty.borrow_mut().struct_field(field_index)
+          ty:    LinkedValueType::struct_field(&self.ty, field_index)
         };
 
         *return_values -= 1;

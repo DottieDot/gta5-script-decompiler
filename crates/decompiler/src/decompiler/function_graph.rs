@@ -240,32 +240,41 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         [(cond_jmp, EdgeType::ConditionalJump), (cond_flow, EdgeType::ConditionalFlow)]
         | [(cond_flow, EdgeType::ConditionalFlow), (cond_jmp, EdgeType::ConditionalJump)],
         _
+      ) if *cond_jmp == *cond_flow => {
+        ControlFlow::Flow { node, after: Box::new(self.node_control_flow(*cond_jmp, parents))}
+      }
+      (
+        [(cond_jmp, EdgeType::ConditionalJump), (cond_flow, EdgeType::ConditionalFlow)]
+        | [(cond_flow, EdgeType::ConditionalFlow), (cond_jmp, EdgeType::ConditionalJump)],
+        _
       ) => {
-        if self.frontiers[cond_jmp].contains(&node) {
-          panic!("inverse if statements are not supported");
-        } else if self.frontiers[cond_flow].contains(&node) {
-          ControlFlow::WhileLoop {
-            node,
-            body: Box::new(
-              self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::Loop{ node, after: Some(*cond_flow)}))
-            ),
-            after: Some(Box::new(self.node_control_flow(*cond_jmp, parents)))
-          }
-        } else if self.is_and_or_node(*cond_jmp) && self.frontiers[cond_jmp].contains(cond_flow) {
-          panic!("inverse if statements are not supported");
+        if self.is_and_or_node(*cond_jmp) && self.frontiers[cond_jmp].contains(cond_flow) {
+          panic!("inverse and/or statements are not supported");
         } else if self.is_and_or_node(*cond_flow) && self.frontiers[cond_flow].contains(cond_jmp) {
           ControlFlow::AndOr {
             node,
             with: Box::new(self.node_control_flow(*cond_flow, parents)),
             after: Box::new(self.node_control_flow(*cond_jmp, parents))
           }
-        } else if self.frontiers[cond_jmp].contains(cond_flow) {
+        } else if self.frontiers[cond_jmp].contains(&node) {
+          panic!("inverse while statements are not supported");
+        } else if self.frontiers[cond_flow].contains(&node) {
+          ControlFlow::WhileLoop {
+            node,
+            body: Box::new(
+              self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::Loop{ node, after: Some(*cond_flow)}))
+            ),
+            after: self.is_valid_after_node(parents, *cond_jmp)
+              .then_some(Box::new(self.node_control_flow(*cond_jmp, parents)))
+          }
+        }  else if self.frontiers[cond_jmp].contains(cond_flow) {
           panic!("inverse if statements are not supported");
-        } else if self.frontiers[cond_flow].is_empty() ||self.frontiers[cond_flow].contains(cond_jmp)   {
+        } else if self.frontiers[cond_flow].is_empty() || self.frontiers[cond_flow].contains(cond_jmp)   {
           ControlFlow::If {
             node,
             then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_jmp) }))),
-            after: Some(Box::new(self.node_control_flow(*cond_jmp, parents)))
+            after: self.is_valid_after_node(parents, *cond_jmp)
+              .then_some(Box::new(self.node_control_flow(*cond_jmp, parents)))
           }
         } else {
           let intersect = self.frontiers[cond_jmp]
@@ -274,7 +283,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             .collect::<Vec<_>>();
 
           match intersect[..] {
-            [after] if self.frontiers[cond_jmp].contains(&after) && !self.frontiers[&node].contains(&after) => {
+            [after] if self.frontiers[cond_jmp].contains(&after) && self.is_valid_after_node(parents, after) => {
               ControlFlow::IfElse {
                 node,
                 then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
@@ -350,17 +359,12 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           .flat_map(|(node, _)| self.frontiers[node].sub(&case_set))
           .dedup();
 
-        let mut after_node = match (case_frontiers.next(), case_frontiers.next()) {
+        let  after_node = match (case_frontiers.next(), case_frontiers.next()) {
           (None, _) => None,
-          (Some(frontier), None) => Some(frontier),
+          (Some(frontier), None) if self.is_valid_after_node(parents, frontier) => Some(frontier),
+          (Some(_), None) => None,
           (Some(_), Some(_)) => panic!("multiple frontiers for switch cases.")
         };
-
-        if let Some(parent_after) = self.get_first_after(parents) {
-          if after_node.map(|n| n == parent_after).unwrap_or_default() {
-            after_node = None;
-          }
-        }
 
         ControlFlow::Switch {
           node,
@@ -494,9 +498,25 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           return *after;
         }
         _ => {}
-    }
+      }
     }
     None
+  }
+
+fn is_valid_after_node(&self, parents: ParentedList<'_, FlowParentType>, candidate: NodeIndex) -> bool {
+  for parent in parents.iter() {
+      match parent {
+        FlowParentType::Loop { after: Some(after), .. }
+        | FlowParentType::Switch { after: Some(after) , ..} 
+        | FlowParentType::NonBreakable { after: Some(after), .. } => { 
+          if *after == candidate {
+            return false
+          }
+        }
+        _ => {}
+      }
+    }
+    true
   }
 
   fn last_singular_dominated_node(&self, node: NodeIndex) -> Option<NodeIndex> {

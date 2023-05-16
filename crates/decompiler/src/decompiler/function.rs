@@ -1,5 +1,5 @@
 use petgraph::graph::NodeIndex;
-use std::{cell::RefCell, collections::HashMap, println, rc::Rc};
+use std::{backtrace::Backtrace, cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
   decompiler::{
@@ -30,13 +30,15 @@ pub struct FunctionInfo<'input, 'bytes> {
 
 #[derive(Clone, Debug)]
 pub struct Function<'input, 'bytes> {
-  pub name:         String,
-  pub location:     usize,
-  pub parameters:   Vec<Rc<RefCell<LinkedValueType>>>,
-  pub locals:       Vec<Rc<RefCell<LinkedValueType>>>,
-  pub returns:      Option<Rc<RefCell<LinkedValueType>>>,
-  pub instructions: &'input [InstructionInfo<'bytes>],
-  pub graph:        FunctionGraph<'input, 'bytes>
+  pub name:            String,
+  pub location:        usize,
+  pub parameters:      Vec<Rc<RefCell<LinkedValueType>>>,
+  pub parameter_count: usize,
+  pub locals:          Vec<Rc<RefCell<LinkedValueType>>>,
+  pub returns:         Option<Rc<RefCell<LinkedValueType>>>,
+  pub return_count:    usize,
+  pub instructions:    &'input [InstructionInfo<'bytes>],
+  pub graph:           FunctionGraph<'input, 'bytes>
 }
 
 impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
@@ -45,6 +47,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     Self {
       name: info.name,
       location: info.location,
+      parameter_count: info.parameters as usize,
+      return_count: info.returns as usize,
       parameters: (0..info.parameters)
         .map(|_| {
           LinkedValueType::Type(ValueTypeInfo {
@@ -730,7 +734,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             }
           )?
         }
-        Instruction::FloatToVector => todo!(), // TODO
+        Instruction::FloatToVector => {
+          let float = stack.pop()?;
+          stack.push_float_to_vector(float)?
+        }
         Instruction::PushConstU8 { c1 } => stack.push_int(*c1 as i64),
         Instruction::PushConstU8U8 { c1, c2 } => {
           stack.push_int(*c1 as i64);
@@ -813,7 +820,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           let dest = stack.pop()?;
           let n = stack.pop()?;
           let StackEntry::Int(n) = n.entry else {
-            Err(InvalidStackError)?
+            Err(InvalidStackError {
+              backtrace: Backtrace::capture()
+            })?
           };
 
           let mut popped = stack.pop_n(n as usize)?;
@@ -846,6 +855,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         }
         Instruction::ArrayU8Load { item_size } => {
           stack.push_array_item(*item_size as usize)?;
+          stack.set_last_as_field()?
         }
         Instruction::ArrayU8Store { item_size } => {
           statements.push(StatementInfo {
@@ -863,7 +873,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_local(*offset as usize, self);
           stack.push_reference()?
         }
-        Instruction::LocalU8Load { offset } => stack.push_local(*offset as usize, self),
+        Instruction::LocalU8Load { offset } => {
+          stack.push_local(*offset as usize, self);
+          stack.set_last_as_field()?
+        }
         Instruction::LocalU8Store { offset } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
@@ -881,7 +894,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_reference()?;
         }
         Instruction::StaticU8Load { static_index } => {
-          stack.push_static(*static_index as usize, statics)
+          stack.push_static(*static_index as usize, statics);
+          stack.set_last_as_field()?
         }
         Instruction::StaticU8Store { static_index } => {
           statements.push(StatementInfo {
@@ -909,7 +923,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_const_offset(*offset as i64)?;
           stack.push_reference()?
         }
-        Instruction::OffsetU8Load { offset } => stack.push_const_offset(*offset as i64)?,
+        Instruction::OffsetU8Load { offset } => {
+          stack.push_const_offset(*offset as i64)?;
+          stack.set_last_as_field()?
+        }
         Instruction::OffsetU8Store { offset } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
@@ -935,6 +952,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         }
         Instruction::OffsetS16Load { offset } => {
           stack.push_const_offset(*offset as i64)?;
+          stack.set_last_as_field()?
         }
         Instruction::OffsetS16Store { offset } => {
           statements.push(StatementInfo {
@@ -954,6 +972,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         }
         Instruction::ArrayU16Load { item_size } => {
           stack.push_array_item(*item_size as usize)?;
+          stack.set_last_as_field()?
         }
         Instruction::ArrayU16Store { item_size } => {
           statements.push(StatementInfo {
@@ -971,7 +990,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_local(*local_index as usize, self);
           stack.push_reference()?
         }
-        Instruction::LocalU16Load { local_index } => stack.push_local(*local_index as usize, self),
+        Instruction::LocalU16Load { local_index } => {
+          stack.push_local(*local_index as usize, self);
+          stack.set_last_as_field()?
+        }
         Instruction::LocalU16Store { local_index } => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
@@ -989,7 +1011,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_reference()?
         }
         Instruction::StaticU16Load { static_index } => {
-          stack.push_static(*static_index as usize, statics)
+          stack.push_static(*static_index as usize, statics);
+          stack.set_last_as_field()?
         }
         Instruction::StaticU16Store { static_index } => {
           statements.push(StatementInfo {
@@ -1008,7 +1031,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_reference()?
         }
         Instruction::GlobalU16Load { global_index } => {
-          stack.push_global(*global_index as usize, globals)
+          stack.push_global(*global_index as usize, globals);
+          stack.set_last_as_field()?
         }
         Instruction::GlobalU16Store { global_index } => {
           statements.push(StatementInfo {
@@ -1169,7 +1193,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_reference()?
         }
         Instruction::StaticU24Load { static_index } => {
-          stack.push_static(*static_index as usize, statics)
+          stack.push_static(*static_index as usize, statics);
+          stack.set_last_as_field()?
         }
         Instruction::StaticU24Store { static_index } => {
           statements.push(StatementInfo {
@@ -1188,7 +1213,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_reference()?;
         }
         Instruction::GlobalU24Load { global_index } => {
-          stack.push_global(*global_index as usize, globals)
+          stack.push_global(*global_index as usize, globals);
+          stack.set_last_as_field()?
         }
         Instruction::GlobalU24Store { global_index } => {
           statements.push(StatementInfo {
@@ -1249,7 +1275,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           let destination = stack.pop()?;
           let buffer_size = stack.pop()?;
           let StackEntry::Int(count) = stack.pop()?.entry else {
-            Err(InvalidStackError)?
+            Err(InvalidStackError {
+              backtrace: Backtrace::capture()
+            })?
           };
           let source = stack.pop_n(count as usize)?;
 
@@ -1272,7 +1300,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             }
           })
         }
-        Instruction::CallIndirect => todo!(),
+        Instruction::CallIndirect => {
+          Err(InvalidStackError {
+            backtrace: Backtrace::capture()
+          })?
+        }
         Instruction::PushConstM1 => stack.push_int(-1),
         Instruction::PushConst0 => stack.push_int(0),
         Instruction::PushConst1 => stack.push_int(1),

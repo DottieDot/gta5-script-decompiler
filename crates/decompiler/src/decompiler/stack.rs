@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{backtrace::Backtrace, collections::VecDeque};
 
 use thiserror::Error;
 
@@ -40,7 +40,9 @@ impl Stack {
     let index = self.pop()?;
 
     let StackEntryInfo { entry: StackEntry::Int(n), .. } = index else {
-      return Err(InvalidStackError)
+      return Err(InvalidStackError {
+      backtrace: Backtrace::capture()
+    })
     };
 
     self.stack.push_back(StackEntryInfo {
@@ -52,6 +54,18 @@ impl Stack {
       }
     });
 
+    Ok(())
+  }
+
+  pub fn set_last_as_field(&mut self) -> Result<(), InvalidStackError> {
+    let popped = self.pop()?;
+    self.stack.push_back(StackEntryInfo {
+      ty:    LinkedValueType::struct_field(&popped.ty, 0),
+      entry: StackEntry::StructField {
+        source: Box::new(popped),
+        field:  0
+      }
+    });
     Ok(())
   }
 
@@ -72,7 +86,7 @@ impl Stack {
     let source = Box::new(self.pop()?);
 
     let source_type = source.ty.borrow_mut().ref_type();
-    let field = source_type.borrow_mut().struct_field(offset as usize);
+    let field = LinkedValueType::struct_field(&source_type, offset as usize);
 
     self.stack.push_back(StackEntryInfo {
       entry: StackEntry::Offset {
@@ -220,37 +234,51 @@ impl Stack {
 
   pub fn push_vector_binary_operator(
     &mut self,
-    _op: BinaryOperator
+    op: BinaryOperator
   ) -> Result<(), InvalidStackError> {
-    todo!();
+    let ty = LinkedValueType::new_vector3().make_shared();
 
-    // let x1 = Box::new(self.pop()?);
-    // let y1 = Box::new(self.pop()?);
-    // let z1 = Box::new(self.pop()?);
-    // let x2 = Box::new(self.pop()?);
-    // let y2 = Box::new(self.pop()?);
-    // let z2 = Box::new(self.pop()?);
+    let a = self.pop_n(3)?;
+    let b = self.pop_n(3)?;
 
-    // self.stack.push_back(StackEntry::BinaryOperator {
-    //   lhs: x1,
-    //   rhs: x2,
-    //   ty: Type::Float,
-    //   op
-    // });
-    // self.stack.push_back(StackEntry::BinaryOperator {
-    //   lhs: y1,
-    //   rhs: y2,
-    //   ty: Type::Float,
-    //   op
-    // });
-    // self.stack.push_back(StackEntry::BinaryOperator {
-    //   lhs: z1,
-    //   rhs: z2,
-    //   ty: Type::Float,
-    //   op
-    // });
+    self.stack.push_back(StackEntryInfo {
+      entry: StackEntry::Struct {
+        origin: Box::new(StackEntryInfo {
+          entry: StackEntry::BinaryOperator {
+            lhs: Box::new(StackEntryInfo {
+              entry: StackEntry::ResultStruct { values: a },
+              ty:    ty.clone()
+            }),
+            rhs: Box::new(StackEntryInfo {
+              entry: StackEntry::ResultStruct { values: b },
+              ty:    ty.clone()
+            }),
+            op
+          },
+          ty:    ty.clone()
+        }),
+        size:   3
+      },
+      ty
+    });
 
-    // Ok(())
+    Ok(())
+  }
+
+  pub fn push_float_to_vector(&mut self, float: StackEntryInfo) -> Result<(), InvalidStackError> {
+    let ty = LinkedValueType::new_vector3().make_shared();
+    self.stack.push_back(StackEntryInfo {
+      entry: StackEntry::Struct {
+        origin: Box::new(StackEntryInfo {
+          entry: StackEntry::FloatToVector(Box::new(float)),
+          ty:    ty.clone()
+        }),
+        size:   3
+      },
+      ty
+    });
+
+    Ok(())
   }
 
   pub fn push_cast(
@@ -293,7 +321,9 @@ impl Stack {
   }
 
   pub fn push_dup(&mut self) -> Result<(), InvalidStackError> {
-    let back = self.stack.back().ok_or(InvalidStackError)?;
+    let back = self.stack.back().ok_or(InvalidStackError {
+      backtrace: Backtrace::capture()
+    })?;
 
     if back.entry.size() > 1 {
       let (last, _) = back.clone().split_off();
@@ -311,7 +341,9 @@ impl Stack {
     let count = self.pop()?;
 
     let StackEntry::Int(n) = count.entry else {
-      return Err(InvalidStackError)
+      return Err(InvalidStackError {
+      backtrace: Backtrace::capture()
+    })
     };
 
     let addr = match addr {
@@ -369,7 +401,7 @@ impl Stack {
   }
 
   pub fn push_function_call(&mut self, function: &Function) -> Result<(), InvalidStackError> {
-    let mut args: Vec<StackEntryInfo> = self.pop_n(function.parameters.len())?;
+    let mut args: Vec<StackEntryInfo> = self.pop_n(function.parameter_count)?;
     args.reverse();
 
     let mut param_iter = function.parameters.iter();
@@ -384,11 +416,7 @@ impl Stack {
       entry: StackEntry::FunctionCallResult {
         args,
         function_address: function.location,
-        return_values: function
-          .returns
-          .as_ref()
-          .map(|r| r.borrow().size())
-          .unwrap_or_default()
+        return_values: function.return_count
       },
       ty:    function
         .returns
@@ -427,7 +455,9 @@ impl Stack {
   }
 
   pub fn pop(&mut self) -> Result<StackEntryInfo, InvalidStackError> {
-    let back = self.stack.pop_back().ok_or(InvalidStackError)?;
+    let back = self.stack.pop_back().ok_or(InvalidStackError {
+      backtrace: Backtrace::capture()
+    })?;
 
     if back.entry.size() > 1 {
       let (last, rest) = back.split_off();
@@ -451,7 +481,9 @@ impl Stack {
         result.push(self.pop()?);
         n -= 1;
       } else {
-        let popped = self.stack.pop_back().ok_or(InvalidStackError)?;
+        let popped = self.stack.pop_back().ok_or(InvalidStackError {
+          backtrace: Backtrace::capture()
+        })?;
         n -= popped.entry.size();
         result.push(popped);
       }
@@ -466,7 +498,9 @@ impl Stack {
       .iter()
       .rev()
       .nth(n)
-      .ok_or(InvalidStackError)?
+      .ok_or(InvalidStackError {
+        backtrace: Backtrace::capture()
+      })?
       .clone();
 
     if back.entry.size() > 1 {
@@ -523,10 +557,14 @@ impl Stack {
   }
 
   fn get_back(&self) -> Result<&StackEntryInfo, InvalidStackError> {
-    self.stack.back().ok_or(InvalidStackError)
+    self.stack.back().ok_or(InvalidStackError {
+      backtrace: Backtrace::capture()
+    })
   }
 }
 
 #[derive(Debug, Error)]
-#[error("Stack is in an invalid state")]
-pub struct InvalidStackError;
+#[error("Stack is in an invalid state:\n${backtrace:#?}")]
+pub struct InvalidStackError {
+  pub backtrace: Backtrace
+}

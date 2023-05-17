@@ -47,6 +47,8 @@ pub enum LinkedValueType {
 
 impl LinkedValueType {
   pub fn link(a: &Rc<RefCell<LinkedValueType>>, b: &Rc<RefCell<LinkedValueType>>) {
+    return;
+
     let a_concrete_ptr = Self::get_concrete_ptr(a);
     let b_concrete_ptr = Self::get_concrete_ptr(b);
     if Rc::ptr_eq(&a_concrete_ptr, &b_concrete_ptr) {

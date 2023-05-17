@@ -15,7 +15,7 @@ fn main() -> anyhow::Result<()> {
   let statics = ScriptStatics::new(script.header.static_count as usize);
   let mut globals = ScriptGlobals::default();
 
-  //  let formatter = AssemblyFormatter::new(&disassembly, false, 0, &script.strings);
+  // let formatter = AssemblyFormatter::new(&disassembly, false, 0, &script.strings);
 
   // let output = formatter.format(&disassembly, true);
 
@@ -39,7 +39,7 @@ fn main() -> anyhow::Result<()> {
   // - 6294 (switch)
   // - 686 (disconnected loop)
   // TODO:
-  let func = &functions[1296];
+  let func = &functions[17672];
   let dot = func.dot_string(AssemblyFormatter::new(
     &disassembly,
     true,
@@ -91,10 +91,10 @@ fn main() -> anyhow::Result<()> {
   // let decompiled = func.decompile(&script, &function_map, &statics, &mut globals)?;
   // let formatted = cpp_formatter.format_function(&decompiled);
 
-  let decompiled = functions[1296..]
+  let decompiled = functions[0..]
     .iter()
     .filter_map(|func| {
-      println!("{}", func.name);
+      // println!("{}", func.name);
       match func.decompile(&script, &function_map, &statics, &mut globals) {
         Ok(d) => Some(d),
         Err(e) => {

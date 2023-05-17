@@ -265,6 +265,31 @@ impl Stack {
     Ok(())
   }
 
+  pub fn push_vector_unary_operator(&mut self, op: UnaryOperator) -> Result<(), InvalidStackError> {
+    let ty = LinkedValueType::new_vector3().make_shared();
+
+    let a = self.pop_n(3)?;
+
+    self.stack.push_back(StackEntryInfo {
+      entry: StackEntry::Struct {
+        origin: Box::new(StackEntryInfo {
+          entry: StackEntry::UnaryOperator {
+            lhs: Box::new(StackEntryInfo {
+              entry: StackEntry::ResultStruct { values: a },
+              ty:    ty.clone()
+            }),
+            op
+          },
+          ty:    ty.clone()
+        }),
+        size:   3
+      },
+      ty
+    });
+
+    Ok(())
+  }
+
   pub fn push_float_to_vector(&mut self, float: StackEntryInfo) -> Result<(), InvalidStackError> {
     let ty = LinkedValueType::new_vector3().make_shared();
     self.stack.push_back(StackEntryInfo {

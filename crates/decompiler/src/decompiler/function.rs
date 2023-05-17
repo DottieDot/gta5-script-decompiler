@@ -673,7 +673,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           stack.push_vector_binary_operator(BinaryOperator::Multiply)?
         }
         Instruction::VectorDivide => stack.push_vector_binary_operator(BinaryOperator::Divide)?,
-        Instruction::VectorNegate => todo!(), // TODO
+        Instruction::VectorNegate => stack.push_vector_unary_operator(UnaryOperator::Negate)?,
         Instruction::BitwiseAnd => {
           stack.push_binary_operator(
             Primitives::Int,
@@ -793,8 +793,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
-              source:      stack.pop()?,
-              destination: stack.pop()?
+              destination: stack.pop()?,
+              source:      stack.pop()?
             }
           })
         }
@@ -802,9 +802,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
             statement:    Statement::Assign {
-              source:      stack.nth_back(0)?,
+              source:      stack.pop()?,
               destination: {
-                let dest = stack.nth_back(1)?;
+                let dest = stack.nth_back(0)?;
                 let ty = dest.ty.borrow_mut().ref_type();
                 StackEntryInfo {
                   entry: StackEntry::Deref(Box::new(dest)),
@@ -1171,7 +1171,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         }
         Instruction::FunctionCall { location } => {
           let location = *location as usize;
-          let target = functions.get(&location).expect("TODO HANDLE THIS");
+          let Some(target) = functions.get(&location) else {
+            // TODO: HANDLE THIS:
+            return Err(InvalidStackError { backtrace: Backtrace::capture() })?;
+          };
           if target.returns.is_some() {
             stack.push_function_call(target)?
           } else {

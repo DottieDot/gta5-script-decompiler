@@ -155,7 +155,7 @@ fn patch_opcodes(version: OpcodeVersion, bytes: &mut [u8]) -> Result<(), ParseYs
   while i < bytes.len() {
     let byte = &mut bytes[i];
     if version <= OpcodeVersion::B2802 && *byte >= Opcode::StaticU24.into() {
-      *byte += 3; // StaticU24, StaticU24Load, StaticU24Store
+      //*byte += 3; // StaticU24, StaticU24Load, StaticU24Store
     }
 
     let opcode = Opcode::try_from(*byte)

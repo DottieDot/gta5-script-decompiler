@@ -537,7 +537,7 @@ pub enum Instruction {
   /// Dereferences `addr1` and sets the value at the address to `v1`, without removing `addr1` from the stack.
   ///
   /// # Stack
-  /// `v1 addr1 -> addr1`
+  /// `addr1 v1 -> addr1`
   StoreRev,
 
   /// # Mnemonic

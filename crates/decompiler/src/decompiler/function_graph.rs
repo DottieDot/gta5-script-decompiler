@@ -10,7 +10,7 @@ use petgraph::{
   algo::dominators::{simple_fast, Dominators},
   graph::NodeIndex,
   prelude::DiGraph,
-  visit::{EdgeRef, IntoNodeIdentifiers, IntoNodeReferences},
+  visit::{EdgeRef, IntoNodeIdentifiers, IntoNodeReferences, IntoEdgesDirected},
   Direction
 };
 
@@ -262,7 +262,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           ControlFlow::WhileLoop {
             node,
             body: Box::new(
-              self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::Loop{ node, after: Some(*cond_flow)}))
+              self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::Loop{ node, after: Some(*cond_jmp)}))
             ),
             after: self.is_valid_after_node(parents, *cond_jmp)
               .then_some(Box::new(self.node_control_flow(*cond_jmp, parents)))
@@ -279,6 +279,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         } else {
           let intersect = self.frontiers[cond_jmp]
             .intersection(&self.frontiers[cond_flow])
+            .filter(|target| self.get_break(**target, parents).is_none() && self.get_continue(**target, parents).is_none())
             .copied()
             .collect::<Vec<_>>();
 
@@ -460,17 +461,28 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     target: NodeIndex,
     parents: ParentedList<'_, FlowParentType>
   ) -> Option<NodeIndex> {
+    if self.get_first_after(parents) == Some(target) {
+      return None;
+    }
+
     let mut loop_node = None;
     let mut after_node = None;
 
     for parent in parents.iter() {
       match parent {
-        FlowParentType::Loop { node, .. } if *node == target => {
-          loop_node = Some(*node);
-          break;
-        }
-        FlowParentType::Loop { node, .. } if *node != target => {
-          after_node.get_or_insert(*node);
+        FlowParentType::Loop { node, .. } => {
+          if *node == target {
+            loop_node = Some(*node);
+            break;
+          } else if self.graph
+              .edges_directed(*node, Direction::Incoming)
+              .find(|edge| edge.source() == target)
+              .is_some() {
+            loop_node = Some(*node);
+            break;
+          } else {
+            after_node.get_or_insert(*node);
+          }
         }
         FlowParentType::Switch {
           after: Some(after), ..
@@ -481,8 +493,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
           after_node.get_or_insert(*after);
         }
         FlowParentType::Switch { .. }
-        | FlowParentType::NonBreakable { .. }
-        | FlowParentType::Loop { .. } => {}
+        | FlowParentType::NonBreakable { .. } => {}
       }
     }
 

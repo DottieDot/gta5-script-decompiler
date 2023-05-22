@@ -10,7 +10,7 @@ use petgraph::{
   algo::dominators::{simple_fast, Dominators},
   graph::NodeIndex,
   prelude::DiGraph,
-  visit::{EdgeRef, IntoNodeIdentifiers, IntoNodeReferences, IntoEdgesDirected},
+  visit::{EdgeRef, IntoNodeIdentifiers, IntoNodeReferences},
   Direction
 };
 
@@ -471,13 +471,9 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     for parent in parents.iter() {
       match parent {
         FlowParentType::Loop { node, .. } => {
-          if *node == target {
-            loop_node = Some(*node);
-            break;
-          } else if self.graph
+          if *node == target || self.graph
               .edges_directed(*node, Direction::Incoming)
-              .find(|edge| edge.source() == target)
-              .is_some() {
+              .any(|edge| edge.source() == target) {
             loop_node = Some(*node);
             break;
           } else {

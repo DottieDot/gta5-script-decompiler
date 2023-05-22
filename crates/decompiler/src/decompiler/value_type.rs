@@ -46,23 +46,21 @@ pub enum LinkedValueType {
 }
 
 impl LinkedValueType {
-  pub fn link(a: &Rc<RefCell<LinkedValueType>>, b: &Rc<RefCell<LinkedValueType>>) {
-    return;
+  pub fn link(_a: &Rc<RefCell<LinkedValueType>>, _b: &Rc<RefCell<LinkedValueType>>) {
+    // let a_concrete_ptr = Self::get_concrete_ptr(a);
+    // let b_concrete_ptr = Self::get_concrete_ptr(b);
+    // if Rc::ptr_eq(&a_concrete_ptr, &b_concrete_ptr) {
+    //   return;
+    // }
 
-    let a_concrete_ptr = Self::get_concrete_ptr(a);
-    let b_concrete_ptr = Self::get_concrete_ptr(b);
-    if Rc::ptr_eq(&a_concrete_ptr, &b_concrete_ptr) {
-      return;
-    }
+    // let a_concrete = a.borrow().get_concrete();
+    // let b_concrete = b.borrow().get_concrete();
 
-    let a_concrete = a.borrow().get_concrete();
-    let b_concrete = b.borrow().get_concrete();
-
-    if a_concrete.confidence > b_concrete.confidence {
-      *b_concrete_ptr.borrow_mut() = LinkedValueType::Redirect(a.clone())
-    } else {
-      *a_concrete_ptr.borrow_mut() = LinkedValueType::Redirect(b.clone())
-    }
+    // if a_concrete.confidence > b_concrete.confidence {
+    //   *b_concrete_ptr.borrow_mut() = LinkedValueType::Redirect(a.clone())
+    // } else {
+    //   *a_concrete_ptr.borrow_mut() = LinkedValueType::Redirect(b.clone())
+    // }
   }
 
   pub fn new_primitive(primitive: Primitives) -> Self {
@@ -254,11 +252,11 @@ impl LinkedValueType {
     }
   }
 
-  fn get_concrete_ptr(ty: &Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
-    let rf: &Self = &ty.borrow();
-    match rf {
-      LinkedValueType::Type(_) => ty.clone(),
-      LinkedValueType::Redirect(r) => Self::get_concrete_ptr(r)
-    }
-  }
+  // fn get_concrete_ptr(ty: &Rc<RefCell<Self>>) -> Rc<RefCell<Self>> {
+  //   let rf: &Self = &ty.borrow();
+  //   match rf {
+  //     LinkedValueType::Type(_) => ty.clone(),
+  //     LinkedValueType::Redirect(r) => Self::get_concrete_ptr(r)
+  //   }
+  // }
 }

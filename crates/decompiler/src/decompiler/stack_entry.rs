@@ -5,69 +5,69 @@ use thiserror::Error;
 use super::LinkedValueType;
 
 #[derive(Clone, Debug)]
-pub enum StackEntry {
+pub enum StackEntry<'i> {
   Int(i64),
   Float(f32),
-  String(usize),
+  String(&'i str),
   Struct {
-    origin: Box<StackEntryInfo>,
+    origin: Box<StackEntryInfo<'i>>,
     size:   usize
   },
   ResultStruct {
-    values: Vec<StackEntryInfo>
+    values: Vec<StackEntryInfo<'i>>
   },
   StructField {
-    source: Box<StackEntryInfo>,
+    source: Box<StackEntryInfo<'i>>,
     field:  usize
   },
   Offset {
-    source: Box<StackEntryInfo>,
-    offset: Box<StackEntryInfo>
+    source: Box<StackEntryInfo<'i>>,
+    offset: Box<StackEntryInfo<'i>>
   },
   ArrayItem {
-    source:    Box<StackEntryInfo>,
-    index:     Box<StackEntryInfo>,
+    source:    Box<StackEntryInfo<'i>>,
+    index:     Box<StackEntryInfo<'i>>,
     item_size: usize
   },
   Local(usize),
   Static(usize),
   Global(usize),
-  Deref(Box<StackEntryInfo>),
-  Ref(Box<StackEntryInfo>),
-  FloatToVector(Box<StackEntryInfo>),
+  Deref(Box<StackEntryInfo<'i>>),
+  Ref(Box<StackEntryInfo<'i>>),
+  FloatToVector(Box<StackEntryInfo<'i>>),
   CatchValue,
   BinaryOperator {
-    lhs: Box<StackEntryInfo>,
-    rhs: Box<StackEntryInfo>,
+    lhs: Box<StackEntryInfo<'i>>,
+    rhs: Box<StackEntryInfo<'i>>,
     op:  BinaryOperator
   },
   UnaryOperator {
-    lhs: Box<StackEntryInfo>,
+    lhs: Box<StackEntryInfo<'i>>,
     op:  UnaryOperator
   },
   Cast {
-    source: Box<StackEntryInfo>
+    source: Box<StackEntryInfo<'i>>
   },
-  StringHash(Box<StackEntryInfo>),
+  StringHash(Box<StackEntryInfo<'i>>),
   FunctionCallResult {
-    args:             Vec<StackEntryInfo>,
+    args:             Vec<StackEntryInfo<'i>>,
     function_address: usize,
     return_values:    usize
   },
   NativeCallResult {
-    args:          Vec<StackEntryInfo>,
+    args:          Vec<StackEntryInfo<'i>>,
     return_values: usize,
     native_hash:   u64
   }
 }
 
 #[derive(Debug, Clone)]
-pub struct StackEntryInfo {
-  pub entry: StackEntry,
+pub struct StackEntryInfo<'i> {
+  pub entry: StackEntry<'i>,
   pub ty:    Rc<RefCell<LinkedValueType>>
 }
 
-impl StackEntryInfo {
+impl<'i> StackEntryInfo<'i> {
   pub fn split_off(mut self) -> (Self, Option<Self>) {
     // Avoid unnecessary clone
     if self.entry.size() == 1 {
@@ -118,7 +118,7 @@ impl StackEntryInfo {
   }
 }
 
-impl StackEntry {
+impl<'i> StackEntry<'i> {
   pub fn size(&self) -> usize {
     match self {
       Self::Struct { size, .. } => *size,

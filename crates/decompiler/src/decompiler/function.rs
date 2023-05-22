@@ -110,7 +110,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
 
   pub fn decompile(
     &self,
-    script: &Script,
+    script: &'input Script,
     functions: &HashMap<usize, Function>,
     statics: &ScriptStatics,
     globals: &mut ScriptGlobals
@@ -133,7 +133,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   pub fn decompile_iteratively(
     &self,
     root: &ControlFlow,
-    script: &Script,
+    script: &'input Script,
     functions: &HashMap<usize, Function>,
     statics: &ScriptStatics,
     globals: &mut ScriptGlobals
@@ -182,7 +182,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
       NodeIndex,
       (
         Vec<StatementInfo<'i, 'b>>,
-        Option<StackEntryInfo>,
+        Option<StackEntryInfo<'i>>,
         &'i [InstructionInfo<'b>]
       )
     >
@@ -310,13 +310,13 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   fn decompile_node(
     &self,
     statements: &mut Vec<StatementInfo<'input, 'bytes>>,
-    stack: &mut Stack,
-    script: &Script,
+    stack: &mut Stack<'input>,
+    script: &'input Script,
     functions: &HashMap<usize, Function>,
     flow: &ControlFlow,
     statics: &ScriptStatics,
     globals: &mut ScriptGlobals
-  ) -> Result<Option<StackEntryInfo>, InvalidStackError> {
+  ) -> Result<Option<StackEntryInfo<'input>>, InvalidStackError> {
     let node = self.graph.get_node(flow.node()).unwrap();
 
     for (index, info) in node.instructions.iter().enumerate() {
@@ -734,10 +734,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             }
           )?
         }
-        Instruction::FloatToVector => {
-          let float = stack.pop()?;
-          stack.push_float_to_vector(float)?
-        }
+        Instruction::FloatToVector => stack.push_float_to_vector()?,
         Instruction::PushConstU8 { c1 } => stack.push_int(*c1 as i64),
         Instruction::PushConstU8U8 { c1, c2 } => {
           stack.push_int(*c1 as i64);
@@ -1152,6 +1149,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             }
             ControlFlow::AndOr { .. } => {
               stack.pop()?;
+              stack.try_make_bitwise_logical()?;
               return Ok(None);
             }
             ControlFlow::Break { .. } => {
@@ -1232,7 +1230,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           })
         }
         Instruction::PushConstU24 { c1 } => stack.push_int(*c1 as i64),
-        Instruction::String => stack.push_string()?,
+        Instruction::String => stack.push_string(script)?,
         Instruction::StringHash => stack.push_string_hash()?,
         Instruction::TextLabelAssignString { buffer_size } => {
           statements.push(StatementInfo {

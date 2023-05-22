@@ -315,7 +315,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
           format!("{f}f")
         }
       }
-      StackEntry::String(usize) => format!("STRING({usize})"),
+      StackEntry::String(string) => format!("\"{string}\""),
       StackEntry::ResultStruct { values } => {
         let values = values
           .iter()

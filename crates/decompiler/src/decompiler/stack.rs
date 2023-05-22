@@ -2,6 +2,8 @@ use std::{backtrace::Backtrace, collections::VecDeque};
 
 use thiserror::Error;
 
+use crate::script::Script;
+
 use super::{
   stack_entry::{BinaryOperator, StackEntry, UnaryOperator},
   Confidence, Function, LinkedValueType, Primitives, ScriptGlobals, ScriptStatics, StackEntryInfo,
@@ -9,11 +11,11 @@ use super::{
 };
 
 #[derive(Default, Debug, Clone)]
-pub struct Stack {
-  stack: VecDeque<StackEntryInfo>
+pub struct Stack<'i> {
+  stack: VecDeque<StackEntryInfo<'i>>
 }
 
-impl Stack {
+impl<'i> Stack<'i> {
   pub fn push_int(&mut self, val: i64) {
     self.stack.push_back(StackEntryInfo {
       entry: StackEntry::Int(val),
@@ -36,7 +38,9 @@ impl Stack {
     })
   }
 
-  pub fn push_string(&mut self) -> Result<(), InvalidStackError> {
+  pub fn push_string(&mut self, script: &'i Script) -> Result<(), InvalidStackError> {
+    static UNKNOWN_STRING: &str = "<UNKNOWN>";
+
     let index = self.pop()?;
 
     let StackEntryInfo { entry: StackEntry::Int(n), .. } = index else {
@@ -46,7 +50,7 @@ impl Stack {
     };
 
     self.stack.push_back(StackEntryInfo {
-      entry: StackEntry::String(n as usize),
+      entry: StackEntry::String(script.get_string(n as usize).unwrap_or(UNKNOWN_STRING)),
       ty:    {
         let mut ty = LinkedValueType::new_primitive(Primitives::String);
         ty.confidence(Confidence::High);
@@ -290,7 +294,8 @@ impl Stack {
     Ok(())
   }
 
-  pub fn push_float_to_vector(&mut self, float: StackEntryInfo) -> Result<(), InvalidStackError> {
+  pub fn push_float_to_vector(&mut self) -> Result<(), InvalidStackError> {
+    let float = self.pop()?;
     let ty = LinkedValueType::new_vector3().make_shared();
     self.stack.push_back(StackEntryInfo {
       entry: StackEntry::Struct {
@@ -479,7 +484,7 @@ impl Stack {
     Ok(())
   }
 
-  pub fn pop(&mut self) -> Result<StackEntryInfo, InvalidStackError> {
+  pub fn pop(&mut self) -> Result<StackEntryInfo<'i>, InvalidStackError> {
     let back = self.stack.pop_back().ok_or(InvalidStackError {
       backtrace: Backtrace::capture()
     })?;
@@ -497,7 +502,7 @@ impl Stack {
     }
   }
 
-  pub fn pop_n(&mut self, mut n: usize) -> Result<Vec<StackEntryInfo>, InvalidStackError> {
+  pub fn pop_n(&mut self, mut n: usize) -> Result<Vec<StackEntryInfo<'i>>, InvalidStackError> {
     let mut result = Vec::with_capacity(n);
     while n > 0 {
       let back = self.get_back()?;
@@ -517,7 +522,7 @@ impl Stack {
     Ok(result)
   }
 
-  pub fn nth_back(&mut self, n: usize) -> Result<StackEntryInfo, InvalidStackError> {
+  pub fn nth_back(&mut self, n: usize) -> Result<StackEntryInfo<'i>, InvalidStackError> {
     let back = self
       .stack
       .iter()

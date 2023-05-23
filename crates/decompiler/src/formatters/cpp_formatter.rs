@@ -1,22 +1,22 @@
-use std::{collections::HashMap, matches};
+use std::matches;
 
 use itertools::Itertools;
 
 use crate::decompiler::{
   decompiled::{DecompiledFunction, Statement, StatementInfo},
-  BinaryOperator, CaseValue, Function, LinkedValueType, Primitives, StackEntry, StackEntryInfo,
-  UnaryOperator, ValueType, ValueTypeInfo
+  BinaryOperator, CaseValue, DecompilerData, LinkedValueType, Primitives, StackEntry,
+  StackEntryInfo, UnaryOperator, ValueType, ValueTypeInfo
 };
 
 use super::code_builder::CodeBuilder;
 
-pub struct CppFormatter<'f, 'i, 'b> {
-  functions: &'f HashMap<usize, Function<'i, 'b>>
+pub struct CppFormatter<'d, 'i, 'b> {
+  data: &'d DecompilerData<'i, 'b>
 }
 
-impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
-  pub fn new(functions: &'f HashMap<usize, Function<'i, 'b>>) -> Self {
-    Self { functions }
+impl<'d, 'i, 'b> CppFormatter<'d, 'i, 'b> {
+  pub fn new(data: &'d DecompilerData<'i, 'b>) -> Self {
+    Self { data }
   }
 
   pub fn format_function(&self, function: &DecompiledFunction) -> String {
@@ -557,6 +557,7 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       .map(|arg| format!("{}", self.format_stack_entry(arg, function)))
       .join(", ");
     let function = self
+      .data
       .functions
       .get(&address)
       .map(|f| f.name.clone())
@@ -574,7 +575,12 @@ impl<'f, 'i, 'b> CppFormatter<'f, 'i, 'b> {
       .iter()
       .map(|arg| format!("{}", self.format_stack_entry(arg, function)))
       .join(", ");
-    format!("unk_0x{native_hash:016X}({args})")
+
+    if let Some(native) = self.data.natives.get_native(native_hash) {
+      format!("{}({args})", native.name)
+    } else {
+      format!("unk_0x{native_hash:016X}({args})")
+    }
   }
 
   fn format_local(&self, local: usize, function: &DecompiledFunction) -> String {

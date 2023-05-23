@@ -148,7 +148,7 @@ impl<'i> Stack<'i> {
     })
   }
 
-  pub fn push_global(&mut self, global_index: usize, globals: &mut ScriptGlobals) {
+  pub fn push_global(&mut self, global_index: usize, globals: &ScriptGlobals) {
     self.stack.push_back(StackEntryInfo {
       entry: StackEntry::Global(global_index),
       ty:    globals.get_global(global_index).clone()

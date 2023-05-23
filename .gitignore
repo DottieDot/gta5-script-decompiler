@@ -16,3 +16,5 @@ output.rs
 flamegraph.svg
 flow.rs
 output.cpp
+
+/resources/

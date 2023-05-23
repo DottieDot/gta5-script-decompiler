@@ -15,3 +15,6 @@ num_enum = "0.6.1"
 anyhow = "1.0.68"
 petgraph = "0.6.3"
 itertools = "0.10.5"
+nativedocgen_model = { git = "https://github.com/DottieDot/gta-5-native-documentation-generator" }
+serde_json = "1.0.96"
+serde = "1.0.160"

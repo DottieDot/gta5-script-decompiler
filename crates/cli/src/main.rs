@@ -1,9 +1,10 @@
 use std::{collections::HashMap, fs, println};
 
 use gta5_script_decompiler::{
-  decompiler::{functions, ScriptGlobals, ScriptStatics},
+  decompiler::{functions, DecompilerData, ScriptGlobals, ScriptStatics},
   disassembler::disassemble,
   formatters::{AssemblyFormatter, CppFormatter},
+  resources::{CrossMap, Natives},
   script::parse_ysc_file
 };
 
@@ -13,7 +14,7 @@ fn main() -> anyhow::Result<()> {
   let disassembly = disassemble(&script.code)?;
 
   let statics = ScriptStatics::new(script.header.static_count as usize);
-  let mut globals = ScriptGlobals::default();
+  let globals = ScriptGlobals::default();
 
   // let formatter = AssemblyFormatter::new(&disassembly, false, 0, &script.strings);
 
@@ -87,7 +88,15 @@ fn main() -> anyhow::Result<()> {
   //   func.decompile(&script, &function_map, &statics, &mut globals)?;
   // }
 
-  let cpp_formatter = CppFormatter::new(&function_map);
+  let data = DecompilerData {
+    statics,
+    globals,
+    natives: Natives::from_json_file("./resources/natives.json")?,
+    cross_map: CrossMap::from_json_file("./resources/crossmap.json")?,
+    functions: function_map
+  };
+
+  let cpp_formatter = CppFormatter::new(&data);
   // let decompiled = func.decompile(&script, &function_map, &statics, &mut globals)?;
   // let formatted = cpp_formatter.format_function(&decompiled);
 
@@ -95,7 +104,7 @@ fn main() -> anyhow::Result<()> {
     .iter()
     .filter_map(|func| {
       // println!("{}", func.name);
-      match func.decompile(&script, &function_map, &statics, &mut globals) {
+      match func.decompile(&script, &data) {
         Ok(d) => Some(d),
         Err(e) => {
           println!("{e:#?}");

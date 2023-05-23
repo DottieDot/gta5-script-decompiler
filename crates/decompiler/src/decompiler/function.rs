@@ -15,8 +15,8 @@ use super::{
   decompiled::{DecompiledFunction, StatementInfo},
   function_graph::FunctionGraph,
   stack::{InvalidStackError, Stack},
-  Confidence, ControlFlow, LinkedValueType, Primitives, ScriptGlobals, ScriptStatics, StackEntry,
-  StackEntryInfo, ValueType, ValueTypeInfo
+  Confidence, ControlFlow, DecompilerData, LinkedValueType, Primitives, StackEntry, StackEntryInfo,
+  ValueType, ValueTypeInfo
 };
 
 pub struct FunctionInfo<'input, 'bytes> {
@@ -111,13 +111,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   pub fn decompile(
     &self,
     script: &'input Script,
-    functions: &HashMap<usize, Function>,
-    statics: &ScriptStatics,
-    globals: &mut ScriptGlobals
+    data: &DecompilerData
   ) -> Result<DecompiledFunction<'input, 'bytes>, InvalidStackError> {
     let flow = self.graph.reconstruct_control_flow();
 
-    let statements = self.decompile_iteratively(&flow, script, functions, statics, globals)?;
+    let statements = self.decompile_iteratively(&flow, script, data)?;
 
     self.add_statement_types(&statements);
 
@@ -134,9 +132,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     &self,
     root: &ControlFlow,
     script: &'input Script,
-    functions: &HashMap<usize, Function>,
-    statics: &ScriptStatics,
-    globals: &mut ScriptGlobals
+    data: &DecompilerData
   ) -> Result<Vec<StatementInfo<'input, 'bytes>>, InvalidStackError> {
     let mut statements: HashMap<
       NodeIndex,
@@ -156,15 +152,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           &self.instructions[0..0]
         )
       });
-      *conditional = self.decompile_node(
-        node_statements,
-        &mut stack,
-        script,
-        functions,
-        flow,
-        statics,
-        globals
-      )?;
+      *conditional = self.decompile_node(node_statements, &mut stack, script, flow, data)?;
       Ok(())
     })?;
 
@@ -312,10 +300,14 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     statements: &mut Vec<StatementInfo<'input, 'bytes>>,
     stack: &mut Stack<'input>,
     script: &'input Script,
-    functions: &HashMap<usize, Function>,
     flow: &ControlFlow,
-    statics: &ScriptStatics,
-    globals: &mut ScriptGlobals
+    DecompilerData {
+      functions,
+      statics,
+      globals,
+      cross_map,
+      ..
+    }: &DecompilerData
   ) -> Result<Option<StackEntryInfo<'input>>, InvalidStackError> {
     let node = self.graph.get_node(flow.node()).unwrap();
 
@@ -756,6 +748,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           return_count,
           native_index
         } => {
+          let hash = cross_map.get_original_hash(script.natives[*native_index as usize]);
           if *return_count == 0 {
             statements.push(StatementInfo {
               instructions: &self.instructions[index..=index],
@@ -765,15 +758,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
                   args.reverse();
                   args
                 },
-                native_hash: script.natives[*native_index as usize]
+                native_hash: hash
               }
             })
           } else {
-            stack.push_native_call(
-              *arg_count as usize,
-              *return_count as usize,
-              script.natives[*native_index as usize]
-            )?
+            stack.push_native_call(*arg_count as usize, *return_count as usize, hash)?
           }
         }
         Instruction::Enter { .. } => { /* SKIP */ }

@@ -1,15 +1,11 @@
-use std::collections::HashMap;
-
 use crate::{
   disassembler::{Instruction, InstructionInfo},
-  formatters::AssemblyFormatter,
-  script::Script
+  formatters::AssemblyFormatter
 };
-
-use self::{decompiled::DecompiledFunction, stack::InvalidStackError};
 
 mod control_flow;
 pub mod decompiled;
+mod decompiler_data;
 mod function;
 mod function_graph;
 mod script_globals;
@@ -19,6 +15,7 @@ mod stack_entry;
 mod value_type;
 
 pub use control_flow::*;
+pub use decompiler_data::*;
 pub use function::*;
 pub use script_globals::*;
 pub use script_statics::*;
@@ -106,20 +103,4 @@ pub fn function_dot_string(
 ) -> String {
   let functions = find_functions(instructions);
   functions[function].dot_string(formatter)
-}
-
-pub fn decompile_function<'input: 'script, 'script>(
-  instructions: &'input [InstructionInfo<'script>],
-  script: &'script Script,
-  function: usize,
-  statics: &ScriptStatics,
-  globals: &mut ScriptGlobals
-) -> Result<DecompiledFunction<'input, 'script>, InvalidStackError> {
-  let functions = find_functions(instructions);
-  let function_map = functions
-    .clone()
-    .into_iter()
-    .map(|f| (f.location, f))
-    .collect::<HashMap<_, _>>();
-  functions[function].decompile(script, &function_map, statics, globals)
 }

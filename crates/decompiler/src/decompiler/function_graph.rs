@@ -20,9 +20,7 @@ use crate::{
   formatters::AssemblyFormatter
 };
 
-use super::{function::FunctionInfo, control_flow::ControlFlow, CaseValue};
-
-
+use super::{control_flow::ControlFlow, function::FunctionInfo, CaseValue};
 
 #[derive(Clone, Copy, Debug)]
 pub enum EdgeType {
@@ -352,7 +350,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
             (false, true) => Ordering::Greater
           }
         });
-        
+
         let case_set = cases.iter().map(|(index, _)| *index).collect::<HashSet<_>>();
 
         let mut case_frontiers = cases
@@ -471,9 +469,12 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     for parent in parents.iter() {
       match parent {
         FlowParentType::Loop { node, .. } => {
-          if *node == target || self.graph
+          if *node == target
+            || self
+              .graph
               .edges_directed(*node, Direction::Incoming)
-              .any(|edge| edge.source() == target) {
+              .any(|edge| edge.source() == target)
+          {
             loop_node = Some(*node);
             break;
           } else {
@@ -488,8 +489,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         } => {
           after_node.get_or_insert(*after);
         }
-        FlowParentType::Switch { .. }
-        | FlowParentType::NonBreakable { .. } => {}
+        FlowParentType::Switch { .. } | FlowParentType::NonBreakable { .. } => {}
       }
     }
 
@@ -500,8 +500,10 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     for parent in parents.iter() {
       match parent {
         FlowParentType::Loop { after, .. }
-        | FlowParentType::Switch { after , ..} 
-        | FlowParentType::NonBreakable { after, .. } if after.is_some() => { 
+        | FlowParentType::Switch { after, .. }
+        | FlowParentType::NonBreakable { after, .. }
+          if after.is_some() =>
+        {
           return *after;
         }
         _ => {}
@@ -510,14 +512,24 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     None
   }
 
-fn is_valid_after_node(&self, parents: ParentedList<'_, FlowParentType>, candidate: NodeIndex) -> bool {
-  for parent in parents.iter() {
+  fn is_valid_after_node(
+    &self,
+    parents: ParentedList<'_, FlowParentType>,
+    candidate: NodeIndex
+  ) -> bool {
+    for parent in parents.iter() {
       match parent {
-        FlowParentType::Loop { after: Some(after), .. }
-        | FlowParentType::Switch { after: Some(after) , ..} 
-        | FlowParentType::NonBreakable { after: Some(after), .. } => { 
+        FlowParentType::Loop {
+          after: Some(after), ..
+        }
+        | FlowParentType::Switch {
+          after: Some(after), ..
+        }
+        | FlowParentType::NonBreakable {
+          after: Some(after), ..
+        } => {
           if *after == candidate {
-            return false
+            return false;
           }
         }
         _ => {}

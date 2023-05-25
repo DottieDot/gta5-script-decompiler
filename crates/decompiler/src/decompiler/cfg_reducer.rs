@@ -187,7 +187,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       })
     } else if self.frontiers[&cond_flow].contains(&node) {
       let after = cond_jmp
-        .and_then(|cond_jmp| 
+        .and_then(|cond_jmp|
           self.is_valid_after_node(node, cond_jmp)
             .then_some(cond_jmp)
         );
@@ -214,7 +214,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       })
     } else if cond_jmp.map(|cond_jmp| self.frontiers[&cond_flow].contains(&cond_jmp)).unwrap_or(true) {
       let after = cond_jmp
-        .and_then(|cond_jmp| 
+        .and_then(|cond_jmp|
           self.is_valid_after_node(node, cond_jmp)
             .then_some(cond_jmp)
         );

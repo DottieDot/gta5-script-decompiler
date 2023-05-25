@@ -39,7 +39,7 @@ pub fn parse_ysc(bytes: &[u8]) -> Result<Script, ParseYscError> {
 
   let mut reader = BinaryReader::from_u8(bytes);
   reader.set_endian(binary_reader::Endian::Little);
-  reader.adv(header.natives_offset as usize);
+  reader.adv(header.natives_offset as usize + header.rsc7_offset.unwrap_or_default() as usize);
   let natives = (0..header.natives_count)
     .map(|i| {
       reader
@@ -104,10 +104,8 @@ fn flatten_table(
     .collect::<Vec<_>>()
 }
 
-fn rotl_native_hash(hash: u64, mut rotate: u32) -> u64 {
-  rotate %= 64;
-  hash.wrapping_shl(rotate) | hash.wrapping_shr(64 - rotate)
-  // hash << rotate | hash >> (64 - rotate)
+fn rotl_native_hash(hash: u64, rotate: u32) -> u64 {
+  hash.rotate_left(rotate % 64)
 }
 
 #[derive(Error, Debug)]

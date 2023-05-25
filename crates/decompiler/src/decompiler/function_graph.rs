@@ -150,7 +150,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     }
   }
 
-  pub fn to_dot_string(&self, formatter: AssemblyFormatter) -> String {
+  pub fn to_dot_string(&self, formatter: &AssemblyFormatter) -> String {
     let mut first = true;
     let mut diagram: LinkedList<String> = Default::default();
     diagram.push_back(r#"digraph{graph[splines=ortho,rankdir=TB,concentrate=true]node[fontname="Consolas",fontcolor=black]"#.to_owned());
@@ -356,6 +356,7 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
         let mut case_frontiers = cases
           .iter()
           .flat_map(|(node, _)| self.frontiers[node].sub(&case_set))
+          .filter(|node| self.is_valid_after_node(parents, *node))
           .dedup();
 
         let  after_node = match (case_frontiers.next(), case_frontiers.next()) {

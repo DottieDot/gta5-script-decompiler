@@ -104,8 +104,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   }
 
   // Temporary
-  pub fn dot_string(&self, formatter: AssemblyFormatter) -> String {
-    self.graph.to_dot_string(formatter)
+  pub fn dot_string(&self, formatter: &AssemblyFormatter) -> String {
+    self.graph.to_dot_string(&formatter)
   }
 
   pub fn decompile(

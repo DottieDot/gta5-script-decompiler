@@ -26,34 +26,39 @@
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug executable 'cli'",
+      "name": "Debug executable 'ysc-decompiler'",
       "cargo": {
         "args": [
           "build",
-          "--bin=cli",
-          "--package=cli"
+          "--bin=ysc-decompiler",
+          "--package=ysc-decompiler"
         ],
         "filter": {
-          "name": "cli",
+          "name": "ysc-decompiler",
           "kind": "bin"
         }
       },
-      "args": [],
+      "args": [
+        "-i",
+        "C:\\Users\\Tvang\\Desktop\\ysc archive\\1.0.2845.0\\arena_carmod.ysc",
+        "-o",
+        "output/"
+      ],
       "cwd": "${workspaceFolder}"
     },
     {
       "type": "lldb",
       "request": "launch",
-      "name": "Debug unit tests in executable 'cli'",
+      "name": "Debug unit tests in executable 'ysc-decompiler'",
       "cargo": {
         "args": [
           "test",
           "--no-run",
-          "--bin=cli",
-          "--package=cli"
+          "--bin=ysc-decompiler",
+          "--package=ysc-decompiler"
         ],
         "filter": {
-          "name": "cli",
+          "name": "ysc-decompiler",
           "kind": "bin"
         }
       },

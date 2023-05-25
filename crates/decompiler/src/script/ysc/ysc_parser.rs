@@ -1,4 +1,4 @@
-use std::{cmp, fs, io, path::Path};
+use std::{cmp, fmt::Debug, fs, io, path::Path};
 
 use binary_reader::BinaryReader;
 use thiserror::Error;
@@ -69,7 +69,7 @@ pub fn parse_ysc(bytes: &[u8]) -> Result<Script, ParseYscError> {
   })
 }
 
-pub fn parse_ysc_file(path: impl AsRef<Path> + ToString) -> Result<Script, ParseYscFileError> {
+pub fn parse_ysc_file(path: impl AsRef<Path> + Debug) -> Result<Script, ParseYscFileError> {
   let path_ref = path.as_ref();
 
   let contents = fs::read(path_ref).map_err(|e| {

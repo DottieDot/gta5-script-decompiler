@@ -1,7 +1,4 @@
-use crate::{
-  disassembler::{Instruction, InstructionInfo},
-  formatters::AssemblyFormatter
-};
+use crate::disassembler::{Instruction, InstructionInfo};
 
 mod control_flow;
 pub mod decompiled;
@@ -80,27 +77,6 @@ fn find_functions<'bytes, 'input: 'bytes>(
   result
 }
 
-pub fn decompile(instructions: &[InstructionInfo]) {
-  let _functions = find_functions(instructions);
-}
-
-pub fn function<'i: 'b, 'b>(
-  instructions: &'i [InstructionInfo<'b>],
-  function: usize
-) -> Function<'i, 'b> {
-  let mut functions = find_functions(instructions);
-  functions.swap_remove(function)
-}
-
-pub fn functions<'i: 'b, 'b>(instructions: &'i [InstructionInfo<'b>]) -> Vec<Function<'i, 'b>> {
+pub fn get_functions<'i: 'b, 'b>(instructions: &'i [InstructionInfo<'b>]) -> Vec<Function<'i, 'b>> {
   find_functions(instructions)
-}
-
-pub fn function_dot_string(
-  instructions: &[InstructionInfo],
-  function: usize,
-  formatter: AssemblyFormatter
-) -> String {
-  let functions = find_functions(instructions);
-  functions[function].dot_string(formatter)
 }

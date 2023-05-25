@@ -11,11 +11,11 @@ use crate::decompiler::{
 use super::code_builder::CodeBuilder;
 
 pub struct CppFormatter<'d, 'i, 'b> {
-  data: &'d DecompilerData<'i, 'b>
+  data: DecompilerData<'d, 'i, 'b>
 }
 
 impl<'d, 'i, 'b> CppFormatter<'d, 'i, 'b> {
-  pub fn new(data: &'d DecompilerData<'i, 'b>) -> Self {
+  pub fn new(data: DecompilerData<'d, 'i, 'b>) -> Self {
     Self { data }
   }
 

@@ -5,7 +5,8 @@
   int_roundings,
   iter_advance_by,
   error_generic_member_access,
-  provide_any
+  provide_any,
+  let_chains
 )]
 
 mod common;

@@ -1,5 +1,6 @@
 use crate::disassembler::{Instruction, InstructionInfo};
 
+mod cfg_reducer;
 mod control_flow;
 pub mod decompiled;
 mod decompiler_data;

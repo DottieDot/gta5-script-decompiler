@@ -1,11 +1,19 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+  cmp::Ordering,
+  collections::{HashMap, HashSet},
+  ops::Sub
+};
 
+use itertools::Itertools;
 use petgraph::{
   algo::dominators::Dominators, graph::NodeIndex, prelude::DiGraph, visit::EdgeRef, Direction
 };
 use thiserror::Error;
 
-use crate::disassembler::{Instruction, InstructionInfo};
+use crate::{
+  common::try_bubble_sort_by,
+  disassembler::{Instruction, InstructionInfo}
+};
 
 use super::function_graph::{EdgeType, FunctionGraphNode};
 
@@ -54,6 +62,63 @@ pub enum ReducedNode {
   }
 }
 
+impl ReducedNode {
+  fn flow_type(&self) -> FlowType {
+    match self {
+      ReducedNode::If { node, after, .. } | ReducedNode::IfElse { node, after, .. } => {
+        FlowType::NonBreakable {
+          node:  *node,
+          after: *after
+        }
+      }
+      ReducedNode::AndOr { node, after, .. } => {
+        FlowType::NonBreakable {
+          node:  *node,
+          after: Some(*after)
+        }
+      }
+      ReducedNode::WhileLoop { node, after, .. } => {
+        FlowType::Loop {
+          node:  *node,
+          after: *after
+        }
+      }
+      ReducedNode::Switch { node, after, .. } => {
+        FlowType::Switch {
+          node:  *node,
+          after: *after
+        }
+      }
+      ReducedNode::Flow { node, .. }
+      | ReducedNode::Break { node, .. }
+      | ReducedNode::Continue { node, .. }
+      | ReducedNode::Leaf { node } => {
+        FlowType::NonBreakable {
+          node:  *node,
+          after: None
+        }
+      }
+    }
+  }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FlowType {
+  Loop {
+    node:  NodeIndex,
+    after: Option<NodeIndex>
+  },
+  Switch {
+    node:  NodeIndex,
+    after: Option<NodeIndex>
+  },
+  NonBreakable {
+    #[allow(dead_code)]
+    node:  NodeIndex,
+    after: Option<NodeIndex>
+  }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum CaseValue {
   Default,
@@ -67,11 +132,71 @@ pub struct CfgReducer<'g, 'i, 'b> {
 }
 
 impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
-  fn initial_reduce(&self) -> Vec<ReducedNode> {
-    todo!()
+  fn reduce(&self, root: NodeIndex) -> Result<HashMap<NodeIndex, ReducedNode>, NodeReductionError> {
+    let mut result: HashMap<NodeIndex, ReducedNode> = HashMap::new();
+    let mut parents: Vec<FlowType> = vec![];
+    let mut stack: Vec<(NodeIndex, usize)> = vec![(root, 0)];
+
+    // DFS
+    while let Some((node, depth)) = stack.pop() {
+      if depth < parents.len() {
+        parents.drain(depth + 1..);
+      }
+
+      let reduced = self.reduce_node(node, &parents)?;
+      match &reduced {
+        ReducedNode::If { then, after, .. } => {
+          if let Some(after) = after {
+            stack.push((*after, depth));
+          }
+          stack.push((*then, depth + 1));
+        }
+        ReducedNode::IfElse {
+          then, els, after, ..
+        } => {
+          if let Some(after) = after {
+            stack.push((*after, depth));
+          }
+          stack.push((*els, depth + 1));
+          stack.push((*then, depth + 1));
+        }
+        ReducedNode::AndOr { with, after, .. } => {
+          stack.push((*after, depth));
+          stack.push((*with, depth + 1));
+        }
+        ReducedNode::WhileLoop { body, after, .. } => {
+          if let Some(after) = after {
+            stack.push((*after, depth));
+          }
+          stack.push((*body, depth + 1));
+        }
+        ReducedNode::Flow { after, .. } => {
+          stack.push((*after, depth));
+        }
+        ReducedNode::Switch { cases, after, .. } => {
+          if let Some(after) = after {
+            stack.push((*after, depth));
+          }
+
+          for (node, _) in cases {
+            stack.push((*node, depth + 1));
+          }
+        }
+        ReducedNode::Leaf { .. } | ReducedNode::Break { .. } | ReducedNode::Continue { .. } => {}
+      }
+
+      parents.push(reduced.flow_type());
+      result.insert(node, reduced);
+    }
+
+    Ok(result)
   }
 
-  fn reduce_node(&self, node: NodeIndex) -> Result<ReducedNode, NodeReductionError> {
+  fn reduce_node(
+    &self,
+    node: NodeIndex,
+    parents: &[FlowType]
+  ) -> Result<ReducedNode, NodeReductionError> {
     let dominated_edges = self
       .graph
       .edges_directed(node, Direction::Outgoing)
@@ -118,13 +243,23 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
             |reduced| Ok(reduced)
           )
       }
+      (cases @ [.., (_, EdgeType::Case(..))] | cases @ [(_, EdgeType::Case(..)), ..], []) => {
+        self.reduce_switch(node, cases, parents)
+      }
       ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
         Ok(ReducedNode::Flow {
           node,
           after: *after
         })
       }
-      // TODO: continue, break, and switch
+      ([], [(target, EdgeType::Jump)]) => {
+        Ok(
+          self
+            .try_reduce_break(node, *target, parents)
+            .or_else(|| self.try_reduce_continue(node, *target, parents))
+            .unwrap_or(ReducedNode::Leaf { node: *target })
+        )
+      }
       _ => {
         Err(NodeReductionError {
           node,
@@ -132,6 +267,78 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
         })
       }
     }
+  }
+
+  fn reduce_switch(
+    &self,
+    switch_node: NodeIndex,
+    cases: &[(NodeIndex, &EdgeType)],
+    parents: &[FlowType]
+  ) -> Result<ReducedNode, NodeReductionError> {
+    let grouped = cases.iter().rev().group_by(|(dest, _)| *dest);
+
+    let mut cases = grouped
+      .into_iter()
+      .map(|(key, group)| {
+        (
+          key,
+          group
+            .map(|(_, e)| {
+              match e {
+                EdgeType::ConditionalFlow => CaseValue::Default,
+                EdgeType::Case(value) => CaseValue::Value(*value),
+                _ => panic!("unexpected switch flow")
+              }
+            })
+            .collect_vec()
+        )
+      })
+      .collect_vec();
+
+    try_bubble_sort_by(&mut cases, |(a, _), (b, _)| {
+      let a_frontiers_b = self
+        .frontiers
+        .get(a)
+        .map(|front| front.contains(b))
+        .unwrap_or_default();
+      let b_frontiers_a = self
+        .frontiers
+        .get(b)
+        .map(|front| front.contains(a))
+        .unwrap_or_default();
+      match (a_frontiers_b, b_frontiers_a) {
+        (true, true) => {
+          Err(NodeReductionError {
+            node:    switch_node,
+            message: "switch has case nodes that frontier at each other"
+          })
+        }
+        (false, false) => Ok(Ordering::Equal),
+        (true, false) => Ok(Ordering::Less),
+        (false, true) => Ok(Ordering::Greater)
+      }
+    })?;
+
+    let case_set = cases
+      .iter()
+      .map(|(index, _)| *index)
+      .collect::<HashSet<_>>();
+
+    let mut case_frontiers = cases
+      .iter()
+      .flat_map(|(n, _)| self.frontiers[n].sub(&case_set))
+      .filter(|n| self.is_valid_after_node(switch_node, *n))
+      .dedup();
+
+    let (after_node, None) = (case_frontiers.next(), case_frontiers.next()) else {
+      return Err(NodeReductionError { node: switch_node, message: "switch has multiple frontiers that are valid after nodes" })
+    };
+
+    Ok(ReducedNode::Switch {
+      node: switch_node,
+      cases,
+      after: after_node
+    })
   }
 
   fn try_reduce_bi_flow(
@@ -297,6 +504,116 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       (Some(last), None) => Some(last.source()),
       _ => None
     }
+  }
+
+  fn try_reduce_break(
+    &self,
+    node: NodeIndex,
+    target: NodeIndex,
+    parents: &[FlowType]
+  ) -> Option<ReducedNode> {
+    let mut iter = parents.iter().rev().peekable();
+    while let Some(
+      FlowType::Loop {
+        node: parent_node,
+        after
+      }
+      | FlowType::Switch {
+        node: parent_node,
+        after
+      }
+    ) = iter.find(|flow| matches!(flow, FlowType::Loop { .. } | FlowType::Switch { .. }))
+    {
+      let mut after = *after;
+
+      while let Some(next) = iter.peek() {
+        match next {
+          FlowType::Loop { node, .. } => {
+            after = Some(*node);
+            break;
+          }
+          FlowType::NonBreakable {
+            after: after_node, ..
+          }
+          | FlowType::Switch {
+            after: after_node, ..
+          } => {
+            after = *after_node;
+            iter.next();
+            break;
+          }
+        }
+      }
+
+      if after.is_some() && after.unwrap() == target {
+        return Some(ReducedNode::Break {
+          node,
+          breaks: target
+        });
+      }
+    }
+
+    None
+  }
+
+  fn try_reduce_continue(
+    &self,
+    node: NodeIndex,
+    target: NodeIndex,
+    parents: &[FlowType]
+  ) -> Option<ReducedNode> {
+    if self.get_first_after(parents) == Some(target) {
+      return None;
+    }
+
+    let mut loop_node = None;
+    let mut after_node = None;
+
+    for parent in parents.iter().rev() {
+      match parent {
+        FlowType::Loop {
+          node: parent_node, ..
+        } => {
+          if *parent_node == target
+            || self
+              .graph
+              .edges_directed(*parent_node, Direction::Incoming)
+              .any(|edge| edge.source() == target)
+          {
+            loop_node = Some(*parent_node);
+            break;
+          } else {
+            after_node.get_or_insert(*parent_node);
+          }
+        }
+        FlowType::Switch {
+          after: Some(after), ..
+        }
+        | FlowType::NonBreakable {
+          after: Some(after), ..
+        } => {
+          after_node.get_or_insert(*after);
+        }
+        FlowType::Switch { .. } | FlowType::NonBreakable { .. } => {}
+      }
+    }
+
+    after_node.and(loop_node.map(|loop_node| {
+      ReducedNode::Continue {
+        node,
+        continues: loop_node
+      }
+    }))
+  }
+
+  fn get_first_after(&self, parents: &[FlowType]) -> Option<NodeIndex> {
+    parents.iter().rev().find_map(|parent| {
+      match parent {
+        FlowType::Loop { after, .. }
+        | FlowType::Switch { after, .. }
+        | FlowType::NonBreakable { after, .. } => *after
+      }
+    })
   }
 }
 

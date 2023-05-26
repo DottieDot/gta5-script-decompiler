@@ -1,11 +1,8 @@
 use std::{
-  cmp::Ordering,
   collections::{HashMap, HashSet, LinkedList},
-  fmt::Debug,
-  ops::Sub
+  fmt::Debug
 };
 
-use itertools::Itertools;
 use petgraph::{
   algo::dominators::{simple_fast, Dominators},
   graph::NodeIndex,
@@ -15,12 +12,15 @@ use petgraph::{
 };
 
 use crate::{
-  common::{bubble_sort_by, ParentedList},
   disassembler::{Instruction, InstructionInfo, SwitchCase},
   formatters::AssemblyFormatter
 };
 
-use super::{control_flow::ControlFlow, function::FunctionInfo, CaseValue};
+use super::{
+  cfg_reducer::{CfgReducer, NodeReductionError},
+  function::FunctionInfo,
+  ControlFlow
+};
 
 #[derive(Clone, Copy, Debug)]
 pub enum EdgeType {
@@ -210,358 +210,14 @@ impl<'input: 'bytes, 'bytes> FunctionGraph<'input, 'bytes> {
     self.graph.node_weight(node)
   }
 
-  pub fn reconstruct_control_flow(&self) -> ControlFlow {
-    self.node_control_flow(self.dominators.root(), Default::default())
-  }
-
-  fn node_control_flow(
-    &self,
-    node: NodeIndex,
-    parents: ParentedList<'_, FlowParentType>
-  ) -> ControlFlow {
-    let dominated_edges = self
-      .graph
-      .edges_directed(node, Direction::Outgoing)
-      .filter(|edge| !self.frontiers[&node].contains(&edge.target()))
-      .map(|edge| (edge.target(), edge.weight()))
-      .collect::<Vec<_>>();
-
-    let frontier_edges = self
-      .graph
-      .edges_directed(node, Direction::Outgoing)
-      .filter(|edge| self.frontiers[&node].contains(&edge.target()))
-      .map(|edge| (edge.target(), edge.weight()))
-      .collect::<Vec<_>>();
-
-    match (&dominated_edges[..], &frontier_edges[..]) {
-      (
-        [(cond_jmp, EdgeType::ConditionalJump), (cond_flow, EdgeType::ConditionalFlow)]
-        | [(cond_flow, EdgeType::ConditionalFlow), (cond_jmp, EdgeType::ConditionalJump)],
-        _
-      ) if *cond_jmp == *cond_flow => {
-        ControlFlow::Flow { node, after: Box::new(self.node_control_flow(*cond_jmp, parents))}
-      }
-      (
-        [(cond_jmp, EdgeType::ConditionalJump), (cond_flow, EdgeType::ConditionalFlow)]
-        | [(cond_flow, EdgeType::ConditionalFlow), (cond_jmp, EdgeType::ConditionalJump)],
-        _
-      ) => {
-        if self.is_and_or_node(*cond_jmp) && self.frontiers[cond_jmp].contains(cond_flow) {
-          panic!("inverse and/or statements are not supported");
-        } else if self.is_and_or_node(*cond_flow) && self.frontiers[cond_flow].contains(cond_jmp) {
-          ControlFlow::AndOr {
-            node,
-            with: Box::new(self.node_control_flow(*cond_flow, parents)),
-            after: Box::new(self.node_control_flow(*cond_jmp, parents))
-          }
-        } else if self.frontiers[cond_jmp].contains(&node) {
-          panic!("inverse while statements are not supported");
-        } else if self.frontiers[cond_flow].contains(&node) {
-          ControlFlow::WhileLoop {
-            node,
-            body: Box::new(
-              self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::Loop{ node, after: Some(*cond_jmp)}))
-            ),
-            after: self.is_valid_after_node(parents, *cond_jmp)
-              .then_some(Box::new(self.node_control_flow(*cond_jmp, parents)))
-          }
-        }  else if self.frontiers[cond_jmp].contains(cond_flow) {
-          panic!("inverse if statements are not supported");
-        } else if self.frontiers[cond_flow].is_empty() || self.frontiers[cond_flow].contains(cond_jmp)   {
-          ControlFlow::If {
-            node,
-            then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(*cond_jmp) }))),
-            after: self.is_valid_after_node(parents, *cond_jmp)
-              .then_some(Box::new(self.node_control_flow(*cond_jmp, parents)))
-          }
-        } else {
-          let intersect = self.frontiers[cond_jmp]
-            .intersection(&self.frontiers[cond_flow])
-            .filter(|target| self.get_break(**target, parents).is_none() && self.get_continue(**target, parents).is_none())
-            .copied()
-            .collect::<Vec<_>>();
-
-          match intersect[..] {
-            [after] if self.frontiers[cond_jmp].contains(&after) && self.is_valid_after_node(parents, after) => {
-              ControlFlow::IfElse {
-                node,
-                then: Box::new(self.node_control_flow(*cond_flow, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
-                els: Box::new(self.node_control_flow(*cond_jmp, parents.with_appended(FlowParentType::NonBreakable { node, after: Some(after) }))),
-                after: Some(Box::new(self.node_control_flow(after, parents)))
-              }
-            }
-            [] | [_] => {
-              ControlFlow::IfElse {
-                node,
-                then: Box::new(self.node_control_flow(*cond_flow, parents)),
-                els: Box::new(self.node_control_flow(*cond_jmp, parents)),
-                after: None
-              }
-            }
-            _ => todo!()
-          }
-        }
-      }
-      ([(then, EdgeType::ConditionalFlow) | (then, EdgeType::ConditionalJump)], _) => {
-        if self.frontiers[then].contains(&node) {
-          ControlFlow::WhileLoop {
-            node,
-            body: Box::new(self.node_control_flow(
-              *then,
-              parents.with_appended(FlowParentType::Loop{ node, after: None })
-            )),
-            after: None
-          }
-        } else {
-          ControlFlow::If {
-            node,
-            then: Box::new(self.node_control_flow(*then, parents)),
-            after: None
-          }
-        }
-      }
-      ([.., (_, EdgeType::Case(..))] | [(_, EdgeType::Case(..)), ..], []) => {
-        let grouped = dominated_edges.iter().rev().group_by(|(dest, _)| *dest);
-
-        let mut cases = grouped
-          .into_iter()
-          .map(|(key, group)| {
-            (key, group.map(|(_, e)| match e {
-              EdgeType::ConditionalFlow => CaseValue::Default,
-              EdgeType::Case(value) => CaseValue::Value(*value),
-              _ => panic!("unexpected switch flow")
-            }).collect_vec())
-          })
-          .collect_vec();
-
-        bubble_sort_by(&mut cases, |(a, _), (b, _)| {
-          let a_frontiers_b = self.frontiers
-            .get(a)
-            .map(|front| front.contains(b))
-            .unwrap_or_default();
-          let b_frontiers_a = self.frontiers
-            .get(b)
-            .map(|front| front.contains(a))
-            .unwrap_or_default();
-          match (a_frontiers_b, b_frontiers_a) {
-            (true, true) => panic!("circular switch case"),
-            (false, false) => Ordering::Equal,
-            (true, false) => Ordering::Less,
-            (false, true) => Ordering::Greater
-          }
-        });
-
-        let case_set = cases.iter().map(|(index, _)| *index).collect::<HashSet<_>>();
-
-        let mut case_frontiers = cases
-          .iter()
-          .flat_map(|(node, _)| self.frontiers[node].sub(&case_set))
-          .filter(|node| self.is_valid_after_node(parents, *node))
-          .dedup();
-
-        let  after_node = match (case_frontiers.next(), case_frontiers.next()) {
-          (None, _) => None,
-          (Some(frontier), None) if self.is_valid_after_node(parents, frontier) => Some(frontier),
-          (Some(_), None) => None,
-          (Some(_), Some(_)) => panic!("multiple frontiers for switch cases.")
-        };
-
-        ControlFlow::Switch {
-          node,
-          cases: cases
-            .into_iter()
-            .map(|(case_node, cases)| {
-              (self.node_control_flow(case_node, parents.with_appended(FlowParentType::Switch { node, after: after_node })), cases)
-            })
-            .collect(),
-          after: after_node.map(|after| Box::new(self.node_control_flow(after, parents)))
-        }
-      }
-      ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
-        ControlFlow::Flow {
-          node,
-          after: Box::new(self.node_control_flow(*after, parents))
-        }
-      }
-      ([], [(target, EdgeType::Jump)]) if let Some(breaks) = self.get_break(*target, parents) => {
-        ControlFlow::Break { node, breaks }
-      }
-      ([], [(target, EdgeType::Jump)]) if let Some(continues) = self.get_continue(*target, parents) => {
-        ControlFlow::Continue{ node, continues }
-      }
-      ([], _) => ControlFlow::Leaf { node },
-      _ => todo!()
-    }
-  }
-
-  fn is_and_or_node(&self, node: NodeIndex) -> bool {
-    let Some(last) = self.last_singular_dominated_node(node) else {
-      return false;
+  pub fn reduce_control_flow(&self) -> Result<HashMap<NodeIndex, ControlFlow>, NodeReductionError> {
+    let reducer = CfgReducer {
+      graph:      &self.graph,
+      dominators: &self.dominators,
+      frontiers:  &self.frontiers
     };
 
-    matches!(
-      self.graph.node_weight(last).unwrap().instructions.last(),
-      Some(InstructionInfo {
-        instruction: Instruction::BitwiseAnd | Instruction::BitwiseOr,
-        ..
-      })
-    )
-  }
-
-  fn get_break(
-    &self,
-    target: NodeIndex,
-    parents: ParentedList<'_, FlowParentType>
-  ) -> Option<NodeIndex> {
-    let mut iter = parents.iter().peekable();
-    while let Some(FlowParentType::Loop { node, after } | FlowParentType::Switch { node, after }) =
-      iter.find(|flow| {
-        matches!(
-          flow,
-          FlowParentType::Loop { .. } | FlowParentType::Switch { .. }
-        )
-      })
-    {
-      let mut after = *after;
-
-      while let Some(next) = iter.peek() {
-        // https://github.com/rust-lang/rust/issues/53667
-        if after.is_some() {
-          break;
-        }
-
-        match next {
-          FlowParentType::Loop { node, .. } => {
-            after = Some(*node);
-            break;
-          }
-          FlowParentType::NonBreakable {
-            after: after_node, ..
-          }
-          | FlowParentType::Switch {
-            after: after_node, ..
-          } => {
-            after = *after_node;
-            iter.next();
-          }
-        }
-      }
-
-      if after.is_some() && after.unwrap() == target {
-        return Some(*node);
-      }
-    }
-
-    None
-  }
-
-  fn get_continue(
-    &self,
-    target: NodeIndex,
-    parents: ParentedList<'_, FlowParentType>
-  ) -> Option<NodeIndex> {
-    if self.get_first_after(parents) == Some(target) {
-      return None;
-    }
-
-    let mut loop_node = None;
-    let mut after_node = None;
-
-    for parent in parents.iter() {
-      match parent {
-        FlowParentType::Loop { node, .. } => {
-          if *node == target
-            || self
-              .graph
-              .edges_directed(*node, Direction::Incoming)
-              .any(|edge| edge.source() == target)
-          {
-            loop_node = Some(*node);
-            break;
-          } else {
-            after_node.get_or_insert(*node);
-          }
-        }
-        FlowParentType::Switch {
-          after: Some(after), ..
-        }
-        | FlowParentType::NonBreakable {
-          after: Some(after), ..
-        } => {
-          after_node.get_or_insert(*after);
-        }
-        FlowParentType::Switch { .. } | FlowParentType::NonBreakable { .. } => {}
-      }
-    }
-
-    after_node.and(loop_node)
-  }
-
-  fn get_first_after(&self, parents: ParentedList<'_, FlowParentType>) -> Option<NodeIndex> {
-    for parent in parents.iter() {
-      match parent {
-        FlowParentType::Loop { after, .. }
-        | FlowParentType::Switch { after, .. }
-        | FlowParentType::NonBreakable { after, .. }
-          if after.is_some() =>
-        {
-          return *after;
-        }
-        _ => {}
-      }
-    }
-    None
-  }
-
-  fn is_valid_after_node(
-    &self,
-    parents: ParentedList<'_, FlowParentType>,
-    candidate: NodeIndex
-  ) -> bool {
-    for parent in parents.iter() {
-      match parent {
-        FlowParentType::Loop {
-          after: Some(after), ..
-        }
-        | FlowParentType::Switch {
-          after: Some(after), ..
-        }
-        | FlowParentType::NonBreakable {
-          after: Some(after), ..
-        } => {
-          if *after == candidate {
-            return false;
-          }
-        }
-        _ => {}
-      }
-    }
-    true
-  }
-
-  fn last_singular_dominated_node(&self, node: NodeIndex) -> Option<NodeIndex> {
-    let frontiers = &self.frontiers[&node];
-
-    let mut iter = frontiers.iter();
-    let (Some(frontier), None) = (iter.next(), iter.next()) else {
-      return None;
-    };
-
-    let mut edges = self
-      .graph
-      .edges_directed(*frontier, Direction::Incoming)
-      .filter(|edge| {
-        self
-          .dominators
-          .dominators(edge.source())
-          .map(|mut doms| doms.any(|dom| dom == node))
-          .unwrap_or_default()
-      });
-
-    match (edges.next(), edges.next()) {
-      (Some(last), None) => Some(last.source()),
-      _ => None
-    }
+    reducer.reduce(0.into())
   }
 }
 
@@ -649,21 +305,4 @@ fn remove_unreachable<'i: 'b, 'b>(
     |node, n| connected.contains(&node).then_some(*n),
     |_, e| Some(*e)
   )
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FlowParentType {
-  Loop {
-    node:  NodeIndex,
-    after: Option<NodeIndex>
-  },
-  Switch {
-    node:  NodeIndex,
-    after: Option<NodeIndex>
-  },
-  NonBreakable {
-    #[allow(dead_code)]
-    node:  NodeIndex,
-    after: Option<NodeIndex>
-  }
 }

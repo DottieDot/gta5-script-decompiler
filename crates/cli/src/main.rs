@@ -1,6 +1,4 @@
-use std::{
-  collections::HashMap, error::Error, fmt::Write, fs, path::PathBuf, thread, time::Duration
-};
+use std::{collections::HashMap, error::Error, fs, path::PathBuf, time::Duration};
 
 use clap::Parser;
 use glob::glob;
@@ -11,7 +9,7 @@ use gta5_script_decompiler::{
   resources::{CrossMap, Natives},
   script::parse_ysc_file
 };
-use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+use indicatif::{ProgressBar, ProgressStyle};
 
 fn parse_key_val<T, U>(s: &str) -> Result<(T, U), anyhow::Error>
 where

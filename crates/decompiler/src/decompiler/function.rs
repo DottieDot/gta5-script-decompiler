@@ -113,9 +113,10 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     script: &'input Script,
     data: &DecompilerData
   ) -> Result<DecompiledFunction<'input, 'bytes>, InvalidStackError> {
-    let flow = self.graph.reconstruct_control_flow();
+    let nodes = self.graph.reduce_control_flow().unwrap();
 
-    let statements = self.decompile_iteratively(&flow, script, data)?;
+    let statements =
+      self.decompile_iteratively(nodes.get(&(0.into())).unwrap(), &nodes, script, data)?;
 
     self.add_statement_types(&statements);
 
@@ -131,6 +132,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   pub fn decompile_iteratively(
     &self,
     root: &ControlFlow,
+    nodes: &HashMap<NodeIndex, ControlFlow>,
     script: &'input Script,
     data: &DecompilerData
   ) -> Result<Vec<StatementInfo<'input, 'bytes>>, InvalidStackError> {
@@ -144,7 +146,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     > = Default::default();
     let mut stack = Stack::default();
 
-    root.dfs_in_order(|flow| {
+    root.dfs_in_order(nodes, |flow| {
       let (node_statements, conditional, _) = statements.entry(flow.node()).or_insert_with(|| {
         (
           Default::default(),
@@ -156,7 +158,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
       Ok(())
     })?;
 
-    root.dfs_post_order::<InvalidStackError>(|flow| {
+    root.dfs_post_order::<InvalidStackError>(nodes, |flow| {
       Self::combine_control_flow(flow, &mut statements);
       Ok(())
     })?;
@@ -178,7 +180,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     match flow {
       ControlFlow::If { then, .. } => {
         let then = statements
-          .remove(&then.node())
+          .remove(then)
           .expect("flow statement already consumed")
           .0;
 
@@ -196,11 +198,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
       }
       ControlFlow::IfElse { then, els, .. } => {
         let then = statements
-          .remove(&then.node())
+          .remove(&then)
           .expect("flow statement already consumed")
           .0;
         let els = statements
-          .remove(&els.node())
+          .remove(&els)
           .expect("flow statement already consumed")
           .0;
 
@@ -219,7 +221,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
       }
       ControlFlow::WhileLoop { body, .. } => {
         let body = statements
-          .remove(&body.node())
+          .remove(&body)
           .expect("flow statement already consumed")
           .0;
 
@@ -241,7 +243,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           .map(|(case, values)| {
             (
               statements
-                .remove(&case.node())
+                .remove(case)
                 .expect("flow statement already consumed")
                 .0,
               values.clone()
@@ -263,7 +265,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
       }
       ControlFlow::AndOr { with, .. } => {
         let with = statements
-          .remove(&with.node())
+          .remove(with)
           .expect("flow statement already consumed");
 
         // TODO: Trailing instructions
@@ -282,7 +284,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
 
     if let Some(after) = flow.after() {
       let after = statements
-        .remove(&after.node())
+        .remove(&after)
         .expect("flow statement already consumed");
 
       // TODO: Trailing instructions

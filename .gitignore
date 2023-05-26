@@ -15,3 +15,5 @@ flamegraph.svg
 /output/
 
 /resources/
+
+.vscode/launch.json

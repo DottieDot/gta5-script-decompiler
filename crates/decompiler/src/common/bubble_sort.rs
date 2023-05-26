@@ -17,7 +17,3 @@ pub fn try_bubble_sort_by<T, E>(
   }
   Ok(())
 }
-
-pub fn bubble_sort_by<T>(data: &mut [T], compare: impl Fn(&T, &T) -> Ordering) {
-  try_bubble_sort_by::<T, ()>(data, |a, b| Ok(compare(a, b))).unwrap()
-}

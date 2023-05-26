@@ -15,125 +15,23 @@ use crate::{
   disassembler::{Instruction, InstructionInfo}
 };
 
-use super::function_graph::{EdgeType, FunctionGraphNode};
-
-#[derive(Debug, Clone)]
-pub enum ReducedNode {
-  If {
-    node:  NodeIndex,
-    then:  NodeIndex,
-    after: Option<NodeIndex>
-  },
-  IfElse {
-    node:  NodeIndex,
-    then:  NodeIndex,
-    els:   NodeIndex,
-    after: Option<NodeIndex>
-  },
-  Leaf {
-    node: NodeIndex
-  },
-  AndOr {
-    node:  NodeIndex,
-    with:  NodeIndex,
-    after: NodeIndex
-  },
-  WhileLoop {
-    node:  NodeIndex,
-    body:  NodeIndex,
-    after: Option<NodeIndex>
-  },
-  Flow {
-    node:  NodeIndex,
-    after: NodeIndex
-  },
-  Break {
-    node:   NodeIndex,
-    breaks: NodeIndex
-  },
-  Continue {
-    node:      NodeIndex,
-    continues: NodeIndex
-  },
-  Switch {
-    node:  NodeIndex,
-    cases: Vec<(NodeIndex, Vec<CaseValue>)>,
-    after: Option<NodeIndex>
-  }
-}
-
-impl ReducedNode {
-  fn flow_type(&self) -> FlowType {
-    match self {
-      ReducedNode::If { node, after, .. } | ReducedNode::IfElse { node, after, .. } => {
-        FlowType::NonBreakable {
-          node:  *node,
-          after: *after
-        }
-      }
-      ReducedNode::AndOr { node, after, .. } => {
-        FlowType::NonBreakable {
-          node:  *node,
-          after: Some(*after)
-        }
-      }
-      ReducedNode::WhileLoop { node, after, .. } => {
-        FlowType::Loop {
-          node:  *node,
-          after: *after
-        }
-      }
-      ReducedNode::Switch { node, after, .. } => {
-        FlowType::Switch {
-          node:  *node,
-          after: *after
-        }
-      }
-      ReducedNode::Flow { node, .. }
-      | ReducedNode::Break { node, .. }
-      | ReducedNode::Continue { node, .. }
-      | ReducedNode::Leaf { node } => {
-        FlowType::NonBreakable {
-          node:  *node,
-          after: None
-        }
-      }
-    }
-  }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FlowType {
-  Loop {
-    node:  NodeIndex,
-    after: Option<NodeIndex>
-  },
-  Switch {
-    node:  NodeIndex,
-    after: Option<NodeIndex>
-  },
-  NonBreakable {
-    #[allow(dead_code)]
-    node:  NodeIndex,
-    after: Option<NodeIndex>
-  }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum CaseValue {
-  Default,
-  Value(i64)
-}
+use super::{
+  function_graph::{EdgeType, FunctionGraphNode},
+  CaseValue, ControlFlow, FlowType
+};
 
 pub struct CfgReducer<'g, 'i, 'b> {
-  graph:      &'g DiGraph<FunctionGraphNode<'i, 'b>, EdgeType>,
-  dominators: &'g Dominators<NodeIndex>,
-  frontiers:  &'g HashMap<NodeIndex, HashSet<NodeIndex>>
+  pub graph:      &'g DiGraph<FunctionGraphNode<'i, 'b>, EdgeType>,
+  pub dominators: &'g Dominators<NodeIndex>,
+  pub frontiers:  &'g HashMap<NodeIndex, HashSet<NodeIndex>>
 }
 
 impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
-  fn reduce(&self, root: NodeIndex) -> Result<HashMap<NodeIndex, ReducedNode>, NodeReductionError> {
-    let mut result: HashMap<NodeIndex, ReducedNode> = HashMap::new();
+  pub fn reduce(
+    &self,
+    root: NodeIndex
+  ) -> Result<HashMap<NodeIndex, ControlFlow>, NodeReductionError> {
+    let mut result: HashMap<NodeIndex, ControlFlow> = HashMap::new();
     let mut parents: Vec<FlowType> = vec![];
     let mut stack: Vec<(NodeIndex, usize)> = vec![(root, 0)];
 
@@ -145,13 +43,13 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
 
       let reduced = self.reduce_node(node, &parents)?;
       match &reduced {
-        ReducedNode::If { then, after, .. } => {
+        ControlFlow::If { then, after, .. } => {
           if let Some(after) = after {
             stack.push((*after, depth));
           }
           stack.push((*then, depth + 1));
         }
-        ReducedNode::IfElse {
+        ControlFlow::IfElse {
           then, els, after, ..
         } => {
           if let Some(after) = after {
@@ -160,20 +58,20 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
           stack.push((*els, depth + 1));
           stack.push((*then, depth + 1));
         }
-        ReducedNode::AndOr { with, after, .. } => {
+        ControlFlow::AndOr { with, after, .. } => {
           stack.push((*after, depth));
           stack.push((*with, depth + 1));
         }
-        ReducedNode::WhileLoop { body, after, .. } => {
+        ControlFlow::WhileLoop { body, after, .. } => {
           if let Some(after) = after {
             stack.push((*after, depth));
           }
           stack.push((*body, depth + 1));
         }
-        ReducedNode::Flow { after, .. } => {
+        ControlFlow::Flow { after, .. } => {
           stack.push((*after, depth));
         }
-        ReducedNode::Switch { cases, after, .. } => {
+        ControlFlow::Switch { cases, after, .. } => {
           if let Some(after) = after {
             stack.push((*after, depth));
           }
@@ -182,7 +80,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
             stack.push((*node, depth + 1));
           }
         }
-        ReducedNode::Leaf { .. } | ReducedNode::Break { .. } | ReducedNode::Continue { .. } => {}
+        ControlFlow::Leaf { .. } | ControlFlow::Break { .. } | ControlFlow::Continue { .. } => {}
       }
 
       parents.push(reduced.flow_type());
@@ -196,7 +94,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     &self,
     node: NodeIndex,
     parents: &[FlowType]
-  ) -> Result<ReducedNode, NodeReductionError> {
+  ) -> Result<ControlFlow, NodeReductionError> {
     let dominated_edges = self
       .graph
       .edges_directed(node, Direction::Outgoing)
@@ -244,10 +142,10 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
           )
       }
       (cases @ [.., (_, EdgeType::Case(..))] | cases @ [(_, EdgeType::Case(..)), ..], []) => {
-        self.reduce_switch(node, cases, parents)
+        self.reduce_switch(node, cases)
       }
       ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
-        Ok(ReducedNode::Flow {
+        Ok(ControlFlow::Flow {
           node,
           after: *after
         })
@@ -257,14 +155,21 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
           self
             .try_reduce_break(node, *target, parents)
             .or_else(|| self.try_reduce_continue(node, *target, parents))
-            .unwrap_or(ReducedNode::Leaf { node: *target })
+            .unwrap_or(ControlFlow::Leaf { node })
         )
       }
+      (
+        [],
+        [(a, EdgeType::ConditionalFlow), (b, EdgeType::ConditionalJump)]
+        | [(a, EdgeType::ConditionalJump), (b, EdgeType::ConditionalFlow)]
+      ) if *a == *b => Ok(ControlFlow::Leaf { node }),
+      ([], [(_, EdgeType::Flow)] | []) => Ok(ControlFlow::Leaf { node }),
       _ => {
         Err(NodeReductionError {
           node,
           message: "Unrecognized control flow"
         })
+        .unwrap()
       }
     }
   }
@@ -272,9 +177,8 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
   fn reduce_switch(
     &self,
     switch_node: NodeIndex,
-    cases: &[(NodeIndex, &EdgeType)],
-    parents: &[FlowType]
-  ) -> Result<ReducedNode, NodeReductionError> {
+    cases: &[(NodeIndex, &EdgeType)]
+  ) -> Result<ControlFlow, NodeReductionError> {
     let grouped = cases.iter().rev().group_by(|(dest, _)| *dest);
 
     let mut cases = grouped
@@ -334,7 +238,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       return Err(NodeReductionError { node: switch_node, message: "switch has multiple frontiers that are valid after nodes" })
     };
 
-    Ok(ReducedNode::Switch {
+    Ok(ControlFlow::Switch {
       node: switch_node,
       cases,
       after: after_node
@@ -346,9 +250,9 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_flow: NodeIndex,
     cond_jmp: NodeIndex
-  ) -> Result<Option<ReducedNode>, NodeReductionError> {
+  ) -> Result<Option<ControlFlow>, NodeReductionError> {
     if cond_flow == cond_jmp {
-      Ok(Some(ReducedNode::Flow {
+      Ok(Some(ControlFlow::Flow {
         node,
         after: cond_flow
       }))
@@ -362,16 +266,14 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_flow: NodeIndex,
     cond_jmp: NodeIndex
-  ) -> Result<Option<ReducedNode>, NodeReductionError> {
-    if !self.is_and_or_node(node) {
-      Ok(None)
-    } else if self.frontiers[&cond_jmp].contains(&cond_flow) {
+  ) -> Result<Option<ControlFlow>, NodeReductionError> {
+    if self.frontiers[&cond_jmp].contains(&cond_flow) && self.is_and_or_node(cond_jmp) {
       Err(NodeReductionError {
         node,
         message: "inverse and/or statements are not supported"
       })
-    } else if self.frontiers[&cond_flow].contains(&cond_jmp) {
-      Ok(Some(ReducedNode::AndOr {
+    } else if self.frontiers[&cond_flow].contains(&cond_jmp) && self.is_and_or_node(cond_flow) {
+      Ok(Some(ControlFlow::AndOr {
         node,
         with: cond_flow,
         after: cond_jmp
@@ -386,7 +288,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_flow: NodeIndex,
     cond_jmp: Option<NodeIndex>
-  ) -> Result<Option<ReducedNode>, NodeReductionError> {
+  ) -> Result<Option<ControlFlow>, NodeReductionError> {
     if let Some(cond_jmp) = cond_jmp && self.frontiers[&cond_jmp].contains(&node) {
       Err(NodeReductionError {
         node,
@@ -398,7 +300,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
           self.is_valid_after_node(node, cond_jmp)
             .then_some(cond_jmp)
         );
-      Ok(Some(ReducedNode::WhileLoop {
+      Ok(Some(ControlFlow::WhileLoop {
         node,
         body: cond_flow,
         after
@@ -413,7 +315,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_flow: NodeIndex,
     cond_jmp: Option<NodeIndex>
-  ) -> Result<Option<ReducedNode>, NodeReductionError> {
+  ) -> Result<Option<ControlFlow>, NodeReductionError> {
     if let Some(cond_jmp) = cond_jmp && self.frontiers[&cond_jmp].contains(&cond_flow) {
       Err(NodeReductionError {
         node,
@@ -425,7 +327,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
           self.is_valid_after_node(node, cond_jmp)
             .then_some(cond_jmp)
         );
-      Ok(Some(ReducedNode::If {
+      Ok(Some(ControlFlow::If {
         node,
         then: cond_flow,
         after
@@ -440,7 +342,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_jmp: NodeIndex,
     cond_flow: NodeIndex
-  ) -> Result<Option<ReducedNode>, NodeReductionError> {
+  ) -> Result<Option<ControlFlow>, NodeReductionError> {
     if self.frontiers[&cond_jmp].contains(&cond_flow)
       || self.frontiers[&cond_flow].contains(&cond_jmp)
     {
@@ -455,7 +357,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       panic!("this should not be possible");
     };
 
-    Ok(Some(ReducedNode::IfElse {
+    Ok(Some(ControlFlow::IfElse {
       node,
       then: cond_jmp,
       els: cond_flow,
@@ -511,18 +413,10 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     target: NodeIndex,
     parents: &[FlowType]
-  ) -> Option<ReducedNode> {
+  ) -> Option<ControlFlow> {
     let mut iter = parents.iter().rev().peekable();
-    while let Some(
-      FlowType::Loop {
-        node: parent_node,
-        after
-      }
-      | FlowType::Switch {
-        node: parent_node,
-        after
-      }
-    ) = iter.find(|flow| matches!(flow, FlowType::Loop { .. } | FlowType::Switch { .. }))
+    while let Some(FlowType::Loop { after, .. } | FlowType::Switch { after, .. }) =
+      iter.find(|flow| matches!(flow, FlowType::Loop { .. } | FlowType::Switch { .. }))
     {
       let mut after = *after;
 
@@ -546,7 +440,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       }
 
       if after.is_some() && after.unwrap() == target {
-        return Some(ReducedNode::Break {
+        return Some(ControlFlow::Break {
           node,
           breaks: target
         });
@@ -561,7 +455,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     target: NodeIndex,
     parents: &[FlowType]
-  ) -> Option<ReducedNode> {
+  ) -> Option<ControlFlow> {
     if self.get_first_after(parents) == Some(target) {
       return None;
     }
@@ -599,7 +493,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     }
 
     after_node.and(loop_node.map(|loop_node| {
-      ReducedNode::Continue {
+      ControlFlow::Continue {
         node,
         continues: loop_node
       }

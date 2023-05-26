@@ -359,8 +359,8 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
 
     Ok(Some(ControlFlow::IfElse {
       node,
-      then: cond_jmp,
-      els: cond_flow,
+      then: cond_flow,
+      els: cond_jmp,
       after: after.copied()
     }))
   }

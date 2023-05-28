@@ -354,7 +354,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       .filter(|after| self.is_valid_after_node(node, **after));
 
     let (after, None) = (intersection.next(), intersection.next()) else {
-      panic!("this should not be possible");
+      return Err(NodeReductionError { node, message: "if else has multiple valid after node frontiers" })
     };
 
     Ok(Some(ControlFlow::IfElse {

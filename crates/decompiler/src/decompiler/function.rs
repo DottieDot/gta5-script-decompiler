@@ -1348,157 +1348,161 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   }
 
   fn add_statement_types(&self, statements: &[StatementInfo]) {
-    for info in statements {
-      match &info.statement {
-        Statement::Nop => {}
-        Statement::Assign {
-          destination,
-          source
-        } => {
-          LinkedValueType::link(&destination.ty, &source.ty);
-        }
-        Statement::Return { values } => {
-          match &values[..] {
-            [value] => {
-              LinkedValueType::link(self.returns.as_ref().unwrap(), &value.ty);
+    let mut stack = vec![statements];
+
+    while let Some(statements) = stack.pop() {
+      for info in statements {
+        match &info.statement {
+          Statement::Nop => {}
+          Statement::Assign {
+            destination,
+            source
+          } => {
+            LinkedValueType::link(&destination.ty, &source.ty);
+          }
+          Statement::Return { values } => {
+            match &values[..] {
+              [value] => {
+                LinkedValueType::link(self.returns.as_ref().unwrap(), &value.ty);
+              }
+              [] => {}
+              values => {
+                self
+                  .returns
+                  .as_ref()
+                  .unwrap()
+                  .borrow_mut()
+                  .hint(ValueTypeInfo {
+                    ty:         ValueType::Struct {
+                      fields: values.iter().map(|v| v.ty.clone()).collect()
+                    },
+                    confidence: Confidence::High
+                  })
+              }
             }
-            [] => {}
-            values => {
-              self
-                .returns
-                .as_ref()
-                .unwrap()
-                .borrow_mut()
-                .hint(ValueTypeInfo {
-                  ty:         ValueType::Struct {
-                    fields: values.iter().map(|v| v.ty.clone()).collect()
-                  },
+          }
+          Statement::Throw { .. } => {}
+          Statement::FunctionCall { .. } => {}
+          Statement::NativeCall { .. } => {}
+          Statement::If { condition, then } => {
+            condition.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Bool),
+              confidence: Confidence::Medium
+            });
+            stack.push(then);
+          }
+          Statement::IfElse {
+            condition,
+            then,
+            els
+          } => {
+            condition.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Bool),
+              confidence: Confidence::Medium
+            });
+            stack.push(then);
+            stack.push(els);
+          }
+          Statement::WhileLoop { condition, body } => {
+            condition.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Bool),
+              confidence: Confidence::Medium
+            });
+            stack.push(body);
+          }
+          Statement::Switch { condition, cases } => {
+            condition.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::Medium
+            });
+            for (body, _) in cases {
+              stack.push(body);
+            }
+          }
+          Statement::Break => {}
+          Statement::Continue => {}
+          Statement::StringCopy {
+            destination,
+            string,
+            ..
+          } => {
+            destination.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Ref(
+                LinkedValueType::Type(ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::String),
                   confidence: Confidence::High
                 })
-            }
+                .make_shared()
+              ),
+              confidence: Confidence::High
+            });
+            string.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::String),
+              confidence: Confidence::High
+            });
           }
-        }
-        Statement::Throw { .. } => {}
-        Statement::FunctionCall { .. } => {}
-        Statement::NativeCall { .. } => {}
-        Statement::If { condition, then } => {
-          condition.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::Bool),
-            confidence: Confidence::Medium
-          });
-          self.add_statement_types(then);
-        }
-        Statement::IfElse {
-          condition,
-          then,
-          els
-        } => {
-          condition.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::Bool),
-            confidence: Confidence::Medium
-          });
-          self.add_statement_types(then);
-          self.add_statement_types(els);
-        }
-        Statement::WhileLoop { condition, body } => {
-          condition.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::Bool),
-            confidence: Confidence::Medium
-          });
-          self.add_statement_types(body);
-        }
-        Statement::Switch { condition, cases } => {
-          condition.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::Int),
-            confidence: Confidence::Medium
-          });
-          for (body, _) in cases {
-            self.add_statement_types(body);
+          Statement::IntToString {
+            destination, int, ..
+          } => {
+            destination.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Ref(
+                LinkedValueType::Type(ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::String),
+                  confidence: Confidence::High
+                })
+                .make_shared()
+              ),
+              confidence: Confidence::High
+            });
+            int.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::High
+            });
           }
-        }
-        Statement::Break => {}
-        Statement::Continue => {}
-        Statement::StringCopy {
-          destination,
-          string,
-          ..
-        } => {
-          destination.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Ref(
-              LinkedValueType::Type(ValueTypeInfo {
-                ty:         ValueType::Primitive(Primitives::String),
-                confidence: Confidence::High
-              })
-              .make_shared()
-            ),
-            confidence: Confidence::High
-          });
-          string.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::String),
-            confidence: Confidence::High
-          });
-        }
-        Statement::IntToString {
-          destination, int, ..
-        } => {
-          destination.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Ref(
-              LinkedValueType::Type(ValueTypeInfo {
-                ty:         ValueType::Primitive(Primitives::String),
-                confidence: Confidence::High
-              })
-              .make_shared()
-            ),
-            confidence: Confidence::High
-          });
-          int.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::Int),
-            confidence: Confidence::High
-          });
-        }
-        Statement::StringConcat {
-          destination,
-          string,
-          ..
-        } => {
-          destination.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Ref(
-              LinkedValueType::Type(ValueTypeInfo {
-                ty:         ValueType::Primitive(Primitives::String),
-                confidence: Confidence::High
-              })
-              .make_shared()
-            ),
-            confidence: Confidence::High
-          });
-          string.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::String),
-            confidence: Confidence::High
-          });
-        }
-        Statement::StringIntConcat {
-          destination, int, ..
-        } => {
-          destination.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Ref(
-              LinkedValueType::Type(ValueTypeInfo {
-                ty:         ValueType::Primitive(Primitives::String),
-                confidence: Confidence::High
-              })
-              .make_shared()
-            ),
-            confidence: Confidence::High
-          });
-          int.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::Int),
-            confidence: Confidence::High
-          });
-        }
-        Statement::MemCopy { buffer_size, .. } => {
-          buffer_size.ty.borrow_mut().hint(ValueTypeInfo {
-            ty:         ValueType::Primitive(Primitives::Int),
-            confidence: Confidence::High
-          });
+          Statement::StringConcat {
+            destination,
+            string,
+            ..
+          } => {
+            destination.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Ref(
+                LinkedValueType::Type(ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::String),
+                  confidence: Confidence::High
+                })
+                .make_shared()
+              ),
+              confidence: Confidence::High
+            });
+            string.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::String),
+              confidence: Confidence::High
+            });
+          }
+          Statement::StringIntConcat {
+            destination, int, ..
+          } => {
+            destination.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Ref(
+                LinkedValueType::Type(ValueTypeInfo {
+                  ty:         ValueType::Primitive(Primitives::String),
+                  confidence: Confidence::High
+                })
+                .make_shared()
+              ),
+              confidence: Confidence::High
+            });
+            int.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::High
+            });
+          }
+          Statement::MemCopy { buffer_size, .. } => {
+            buffer_size.ty.borrow_mut().hint(ValueTypeInfo {
+              ty:         ValueType::Primitive(Primitives::Int),
+              confidence: Confidence::High
+            });
+          }
         }
       }
     }

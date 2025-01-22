@@ -1,5 +1,6 @@
 [workspace]
 members = ["./crates/decompiler", "./crates/cli"]
+resolver = "2"
 
 [profile.dev]
 opt-level = 0

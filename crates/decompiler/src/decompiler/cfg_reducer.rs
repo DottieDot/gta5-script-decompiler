@@ -132,9 +132,15 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
         self
           .try_reduce_bi_flow(node, *cond_flow, *cond_jmp)
           .inner_or_else(|| self.try_reduce_and_or(node, *cond_flow, *cond_jmp))
-          .inner_or_else(|| self.try_reduce_while_loop(node, *cond_flow, Some(*cond_jmp), parents))
-          .inner_or_else(|| self.try_reduce_if(node, *cond_flow, Some(*cond_jmp), parents))
-          .inner_or_else(|| self.try_reduce_if_else(node, *cond_jmp, *cond_flow, parents))?
+          .inner_or_else(|| {
+            self.try_reduce_while_loop(node, *cond_flow, Some(*cond_jmp), parents, claimed_nodes)
+          })
+          .inner_or_else(|| {
+            self.try_reduce_if(node, *cond_flow, Some(*cond_jmp), parents, claimed_nodes)
+          })
+          .inner_or_else(|| {
+            self.try_reduce_if_else(node, *cond_jmp, *cond_flow, parents, claimed_nodes)
+          })?
           .map_or(
             Err(NodeReductionError {
               node,
@@ -145,8 +151,8 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       }
       ([(then, EdgeType::ConditionalFlow)], _) => {
         self
-          .try_reduce_while_loop(node, *then, None, parents)
-          .inner_or_else(|| self.try_reduce_if(node, *then, None, parents))?
+          .try_reduce_while_loop(node, *then, None, parents, claimed_nodes)
+          .inner_or_else(|| self.try_reduce_if(node, *then, None, parents, claimed_nodes))?
           .map_or(
             Err(NodeReductionError {
               node,
@@ -156,7 +162,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
           )
       }
       (cases @ [.., (_, EdgeType::Case(..))] | cases @ [(_, EdgeType::Case(..)), ..], []) => {
-        self.reduce_switch(node, cases, parents)
+        self.reduce_switch(node, cases, parents, claimed_nodes)
       }
       ([(after, EdgeType::Flow) | (after, EdgeType::Jump)], []) => {
         Ok(ControlFlow::Flow {
@@ -178,7 +184,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
         | [(a, EdgeType::ConditionalJump), (b, EdgeType::ConditionalFlow)]
       ) if *a == *b => Ok(ControlFlow::Leaf { node }),
       ([], [(after, EdgeType::Flow)])
-        if !claimed_nodes.contains(after) && self.is_valid_after_node(*after, parents) =>
+        if self.is_valid_after_node(*after, parents, claimed_nodes) =>
       {
         Ok(ControlFlow::Flow {
           node,
@@ -200,7 +206,8 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     &self,
     switch_node: NodeIndex,
     cases: &[(NodeIndex, &EdgeType)],
-    parents: &[FlowType]
+    parents: &[FlowType],
+    claimed_nodes: &HashSet<NodeIndex>
   ) -> Result<ControlFlow, NodeReductionError> {
     let grouped = cases.iter().rev().group_by(|(dest, _)| *dest);
 
@@ -246,7 +253,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       }
     })?;
 
-    let after_node = self.get_switch_after_node(switch_node, &cases, parents)?;
+    let after_node = self.get_switch_after_node(switch_node, &cases, parents, claimed_nodes)?;
 
     Ok(ControlFlow::Switch {
       node: switch_node,
@@ -259,7 +266,8 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     &self,
     switch_node: NodeIndex,
     cases: &[(NodeIndex, Vec<CaseValue>)],
-    parents: &[FlowType]
+    parents: &[FlowType],
+    claimed_nodes: &HashSet<NodeIndex>
   ) -> Result<Option<NodeIndex>, NodeReductionError> {
     let case_set = cases
       .iter()
@@ -269,13 +277,17 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     let case_frontiers = cases
       .iter()
       .flat_map(|(n, _)| self.frontiers[n].sub(&case_set))
-      .filter(|n| self.is_valid_after_node(*n, parents))
+      .filter(|n| self.is_valid_after_node(*n, parents, claimed_nodes))
       .dedup()
       .collect_vec();
 
     let mut iter = case_frontiers.iter();
     let (after_node, None) = (iter.next(), iter.next()) else {
-      return self.get_after_node_expensive(switch_node, &cases.iter().map(|(node, _)| *node).collect_vec(), case_frontiers);
+      return self.get_after_node_expensive(
+        switch_node,
+        &cases.iter().map(|(node, _)| *node).collect_vec(),
+        case_frontiers
+      );
     };
 
     Ok(after_node.copied())
@@ -324,19 +336,22 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_flow: NodeIndex,
     cond_jmp: Option<NodeIndex>,
-    parents: &[FlowType]
+    parents: &[FlowType],
+    claimed_nodes: &HashSet<NodeIndex>
   ) -> Result<Option<ControlFlow>, NodeReductionError> {
-    if let Some(cond_jmp) = cond_jmp && self.frontiers[&cond_jmp].contains(&node) {
+    if let Some(cond_jmp) = cond_jmp
+      && self.frontiers[&cond_jmp].contains(&node)
+    {
       Err(NodeReductionError {
         node,
         message: "inverse while loops are not supported"
       })
     } else if self.frontiers[&cond_flow].contains(&node) {
-      let after = cond_jmp
-        .and_then(|cond_jmp|
-          self.is_valid_after_node( cond_jmp, parents)
-            .then_some(cond_jmp)
-        );
+      let after = cond_jmp.and_then(|cond_jmp| {
+        self
+          .is_valid_after_node(cond_jmp, parents, claimed_nodes)
+          .then_some(cond_jmp)
+      });
       Ok(Some(ControlFlow::WhileLoop {
         node,
         body: cond_flow,
@@ -352,19 +367,25 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_flow: NodeIndex,
     cond_jmp: Option<NodeIndex>,
-    parents: &[FlowType]
+    parents: &[FlowType],
+    claimed_nodes: &HashSet<NodeIndex>
   ) -> Result<Option<ControlFlow>, NodeReductionError> {
-    if let Some(cond_jmp) = cond_jmp && self.frontiers[&cond_jmp].contains(&cond_flow) {
+    if let Some(cond_jmp) = cond_jmp
+      && self.frontiers[&cond_jmp].contains(&cond_flow)
+    {
       Err(NodeReductionError {
         node,
         message: "inverse if statements are not supported"
       })
-    } else if cond_jmp.map(|cond_jmp| self.frontiers[&cond_flow].contains(&cond_jmp)).unwrap_or(true) {
-      let after = cond_jmp
-        .and_then(|cond_jmp|
-          self.is_valid_after_node( cond_jmp, parents)
-            .then_some(cond_jmp)
-        );
+    } else if cond_jmp
+      .map(|cond_jmp| self.frontiers[&cond_flow].contains(&cond_jmp))
+      .unwrap_or(true)
+    {
+      let after = cond_jmp.and_then(|cond_jmp| {
+        self
+          .is_valid_after_node(cond_jmp, parents, claimed_nodes)
+          .then_some(cond_jmp)
+      });
       Ok(Some(ControlFlow::If {
         node,
         then: cond_flow,
@@ -380,7 +401,8 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_jmp: NodeIndex,
     cond_flow: NodeIndex,
-    parents: &[FlowType]
+    parents: &[FlowType],
+    claimed_nodes: &HashSet<NodeIndex>
   ) -> Result<Option<ControlFlow>, NodeReductionError> {
     if self.frontiers[&cond_jmp].contains(&cond_flow)
       || self.frontiers[&cond_flow].contains(&cond_jmp)
@@ -388,7 +410,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       return Ok(None);
     }
 
-    let after = self.get_if_else_after_node(node, cond_jmp, cond_flow, parents)?;
+    let after = self.get_if_else_after_node(node, cond_jmp, cond_flow, parents, claimed_nodes)?;
 
     Ok(Some(ControlFlow::IfElse {
       node,
@@ -403,16 +425,21 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     node: NodeIndex,
     cond_jmp: NodeIndex,
     cond_flow: NodeIndex,
-    parents: &[FlowType]
+    parents: &[FlowType],
+    claimed_nodes: &HashSet<NodeIndex>
   ) -> Result<Option<NodeIndex>, NodeReductionError> {
     let intersection = self.frontiers[&cond_jmp]
       .intersection(&self.frontiers[&cond_flow])
-      .filter(|after| self.is_valid_after_node(**after, parents))
+      .filter(|after| self.is_valid_after_node(**after, parents, claimed_nodes))
       .copied();
 
     let mut iter = intersection.clone();
     let (after, None) = (iter.next(), iter.next()) else {
-      return self.get_after_node_expensive(node, &[cond_jmp, cond_flow], intersection.collect_vec())
+      return self.get_after_node_expensive(
+        node,
+        &[cond_jmp, cond_flow],
+        intersection.collect_vec()
+      );
     };
 
     Ok(after)
@@ -457,7 +484,16 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
     }
   }
 
-  fn is_valid_after_node(&self, candidate: NodeIndex, parents: &[FlowType]) -> bool {
+  fn is_valid_after_node(
+    &self,
+    candidate: NodeIndex,
+    parents: &[FlowType],
+    claimed_nodes: &HashSet<NodeIndex>
+  ) -> bool {
+    if claimed_nodes.contains(&candidate) {
+      return false;
+    }
+
     for parent in parents {
       match parent {
         FlowType::Loop { after, node }
@@ -470,7 +506,7 @@ impl<'g, 'i, 'b> CfgReducer<'g, 'i, 'b> {
       }
     }
 
-    return true;
+    true
   }
 
   fn is_and_or_node(&self, node: NodeIndex) -> bool {

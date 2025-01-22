@@ -159,7 +159,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     })?;
 
     root.dfs_post_order::<InvalidStackError>(nodes, |flow| {
-      Self::combine_control_flow(flow, &mut statements);
+      self.combine_control_flow(flow, &mut statements);
       Ok(())
     })?;
 
@@ -167,6 +167,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
   }
 
   fn combine_control_flow<'i, 'b>(
+    &self,
     flow: &ControlFlow,
     statements: &mut HashMap<
       NodeIndex,
@@ -181,7 +182,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
       ControlFlow::If { then, .. } => {
         let then = statements
           .remove(then)
-          .expect("flow statement already consumed")
+          .expect(&format!(
+            "flow statement already consumed {} {}",
+            then.index(),
+            self.name
+          ))
           .0;
 
         let (node_statements, conditional, trailing_instructions) = statements
@@ -1162,7 +1167,9 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           let location = *location as usize;
           let Some(target) = functions.get(&location) else {
             // TODO: HANDLE THIS:
-            return Err(InvalidStackError { backtrace: Backtrace::capture() })?;
+            return Err(InvalidStackError {
+              backtrace: Backtrace::capture()
+            })?;
           };
           if target.returns.is_some() {
             stack.push_function_call(target)?

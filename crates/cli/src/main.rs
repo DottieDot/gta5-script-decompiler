@@ -1,5 +1,6 @@
 use std::{collections::HashMap, error::Error, fs, path::PathBuf, time::Duration};
 
+use anyhow::Context;
 use clap::Parser;
 use glob::glob;
 use gta5_script_decompiler::{
@@ -67,8 +68,10 @@ fn main() -> anyhow::Result<()> {
   let args = Args::parse();
 
   let globals = ScriptGlobals::default();
-  let natives = Natives::from_json_file("./resources/natives.json")?;
-  let cross_map = CrossMap::from_json_file("./resources/crossmap.json")?;
+  let natives =
+    Natives::from_json_file("./resources/natives.json").context("could not open natives.json")?;
+  let cross_map = CrossMap::from_json_file("./resources/crossmap.json")
+    .context("could not open crossmap.json")?;
 
   let script_files = glob(&args.input)?
     .filter_map(|file| file.ok())

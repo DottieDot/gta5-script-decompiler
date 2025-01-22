@@ -748,7 +748,50 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::PushConstFloat { c1 } => stack.push_float(*c1),
         Instruction::Dup => stack.push_dup()?,
         Instruction::Drop => {
-          stack.pop()?;
+          if let Ok(entry) = stack.pop() {
+            match entry.entry {
+              StackEntry::Int(..)
+              | StackEntry::Float(..)
+              | StackEntry::String(..)
+              | StackEntry::Struct { .. }
+              | StackEntry::ResultStruct { .. }
+              | StackEntry::StructField { .. }
+              | StackEntry::Offset { .. }
+              | StackEntry::ArrayItem { .. }
+              | StackEntry::Local(..)
+              | StackEntry::Static(..)
+              | StackEntry::Global(..)
+              | StackEntry::Deref(..)
+              | StackEntry::Ref(..)
+              | StackEntry::FloatToVector(..)
+              | StackEntry::CatchValue
+              | StackEntry::BinaryOperator { .. }
+              | StackEntry::UnaryOperator { .. }
+              | StackEntry::Cast { .. }
+              | StackEntry::StringHash(..) => {}
+              StackEntry::FunctionCallResult {
+                args,
+                function_address,
+                ..
+              } => {
+                statements.push(StatementInfo {
+                  instructions: &self.instructions[index..=index],
+                  statement:    Statement::FunctionCall {
+                    args,
+                    function_address
+                  }
+                });
+              }
+              StackEntry::NativeCallResult {
+                args, native_hash, ..
+              } => {
+                statements.push(StatementInfo {
+                  instructions: &self.instructions[index..=index],
+                  statement:    Statement::NativeCall { args, native_hash }
+                })
+              }
+            }
+          }
         }
         Instruction::NativeCall {
           arg_count,

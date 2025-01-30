@@ -146,7 +146,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     > = Default::default();
     let mut stack = Stack::default();
 
-    root.dfs_in_order(nodes, |flow| {
+    root.dfs_in_order(nodes, |flow, parent| {
       let (node_statements, conditional, _) = statements.entry(flow.node()).or_insert_with(|| {
         (
           Default::default(),
@@ -154,7 +154,8 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
           &self.instructions[0..0]
         )
       });
-      *conditional = self.decompile_node(node_statements, &mut stack, script, flow, data)?;
+      *conditional =
+        self.decompile_node(node_statements, &mut stack, script, flow, parent, data)?;
       Ok(())
     })?;
 
@@ -308,6 +309,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
     stack: &mut Stack<'input>,
     script: &'input Script,
     flow: &ControlFlow,
+    parent_flow: Option<&ControlFlow>,
     DecompilerData {
       functions,
       statics,
@@ -684,7 +686,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
               ty:         ValueType::Primitive(Primitives::Int),
               confidence: Confidence::Medium
             },
-            BinaryOperator::BitwiseAnd
+            if matches!(parent_flow, Some(ControlFlow::AndOr { .. })) {
+              BinaryOperator::LogicalAnd
+            } else {
+              BinaryOperator::BitwiseAnd
+            }
           )?
         }
         Instruction::BitwiseOr => {
@@ -698,7 +704,11 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
               ty:         ValueType::Primitive(Primitives::Int),
               confidence: Confidence::Medium
             },
-            BinaryOperator::BitwiseOr
+            if matches!(parent_flow, Some(ControlFlow::AndOr { .. })) {
+              BinaryOperator::LogicalOr
+            } else {
+              BinaryOperator::BitwiseOr
+            }
           )?
         }
         Instruction::BitwiseXor => {
@@ -828,7 +838,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::Store => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
-            statement:    Statement::Assign {
+            statement:    Statementd::Assign {
               destination: stack.pop()?,
               source:      stack.pop()?
             }
@@ -1188,7 +1198,6 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
             }
             ControlFlow::AndOr { .. } => {
               stack.pop()?;
-              stack.try_make_bitwise_logical()?;
               return Ok(None);
             }
             ControlFlow::Break { .. } => {

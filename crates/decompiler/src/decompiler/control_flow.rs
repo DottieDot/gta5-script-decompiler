@@ -114,51 +114,53 @@ impl ControlFlow {
   pub fn dfs_in_order<E>(
     &self,
     nodes: &HashMap<NodeIndex, ControlFlow>,
-    mut cb: impl FnMut(&ControlFlow) -> Result<(), E>
+    mut cb: impl FnMut(&ControlFlow, Option<&ControlFlow>) -> Result<(), E>
   ) -> Result<(), E> {
-    let mut stack = vec![self.node()];
+    let mut stack: Vec<(NodeIndex, Option<NodeIndex>)> = vec![(self.node(), None)];
 
-    while let Some(node) = stack.pop() {
+    while let Some((node, parent)) = stack.pop() {
       let flow = nodes.get(&node).unwrap();
       match flow {
         ControlFlow::If { then, after, .. } => {
           if let Some(after) = after {
-            stack.push(*after);
+            stack.push((*after, Some(node)));
           }
-          stack.push(*then);
+          stack.push((*then, Some(node)));
         }
         ControlFlow::IfElse {
           then, els, after, ..
         } => {
           if let Some(after) = after {
-            stack.push(*after);
+            stack.push((*after, Some(node)));
           }
-          stack.push(*els);
-          stack.push(*then);
+          stack.push((*els, Some(node)));
+          stack.push((*then, Some(node)));
         }
         ControlFlow::AndOr { with, after, .. } => {
-          stack.push(*after);
-          stack.push(*with);
+          stack.push((*after, Some(node)));
+          stack.push((*with, Some(node)));
         }
         ControlFlow::WhileLoop { body, after, .. } => {
           if let Some(after) = after {
-            stack.push(*after);
+            stack.push((*after, Some(node)));
           }
-          stack.push(*body);
+          stack.push((*body, Some(node)));
         }
         ControlFlow::Flow { after, .. } => {
-          stack.push(*after);
+          stack.push((*after, Some(node)));
         }
         ControlFlow::Switch { cases, after, .. } => {
           if let Some(after) = after {
-            stack.push(*after);
+            stack.push((*after, Some(node)));
           }
-          stack.extend(cases.iter().map(|(cf, _)| cf));
+          stack.extend(cases.iter().map(|(cf, _)| (*cf, Some(node))));
         }
         ControlFlow::Leaf { .. } | ControlFlow::Break { .. } | ControlFlow::Continue { .. } => {}
       }
 
-      cb(flow)?;
+      let parent_flow = parent.map(|p| nodes.get(&p).unwrap());
+
+      cb(flow, parent_flow)?;
     }
 
     Ok(())

@@ -838,7 +838,7 @@ impl<'input: 'bytes, 'bytes> Function<'input, 'bytes> {
         Instruction::Store => {
           statements.push(StatementInfo {
             instructions: &self.instructions[index..=index],
-            statement:    Statementd::Assign {
+            statement:    Statement::Assign {
               destination: stack.pop()?,
               source:      stack.pop()?
             }
